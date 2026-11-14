@@ -171,7 +171,8 @@ def flatten_groups(groups: list[SequenceGroup]) -> list[SequenceGroup]:
                     stack.extend(reversed(item.group.children))
             elif item.kind == 'macro' and item.macro_id and item.macro_id not in seen_macros:
                 seen_macros.add(item.macro_id)
-                flat.append(SequenceItem(kind='macro', macro_id=item.macro_id, delay_seconds=0))
+                item.delay_seconds = 0
+                flat.append(item)
         group.children = flat
     return groups
 

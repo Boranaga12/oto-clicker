@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import queue
-from collections import deque
+from collections import deque, OrderedDict
 from functools import wraps
+from dataclasses import fields
 import os
 from pathlib import Path
 import time
@@ -39,6 +40,7 @@ from .sequences import (
     sequence_groups_from_list,
 )
 from .ui_widgets import DEFAULT_THEME, ScrollableFrame, PointMarker
+from .workers import MOUSE_NAMES
 
 
 PIXEL_PICK_OFFSET = 8
@@ -55,6 +57,8 @@ def editable_only(method):
             if isinstance(target, SequenceGroup) and not target.enabled:
                 return
             if isinstance(target, KeyConfig):
+                if hasattr(self, "key_configs") and not any(target is item for item in self.key_configs):
+                    return
                 for group in getattr(self, "sequence_groups", []):
                     if not group.enabled and target.id_token in group_macro_ids(group):
                         return
@@ -68,6 +72,8 @@ class ClickerApp:
         self.clicker = clicker
         
         self.last_add_time = 0.0
+        self._profile_views = OrderedDict()
+        self._current_view = None
         self.config_widgets = {}
         self.group_widgets: dict[str, dict[str, tk.Widget]] = {}
         self.active_group_ids: set[str] = set()
@@ -741,7 +747,7 @@ class ClickerApp:
         vcmd = (self.root.register(self.validate_float), '%d', '%P')
         entry = tk.Entry(
             frame, width=width, bg=self.input_bg, fg=self.text_primary, 
-            bd=0, insertbackground=self.text_primary, font=("Segoe UI", 9),
+            bd=0, highlightthickness=0, insertbackground=self.text_primary, font=("Segoe UI", 9),
             validate="key", validatecommand=vcmd
         )
         entry.pack(fill="both")
@@ -815,6 +821,20 @@ class ClickerApp:
         self.sequence_groups = sequence_groups_from_list(
             self.profiles_data.get("groups", {}).get(self.active_profile, [])
         )
+        view = self._profile_views.get(self.active_profile)
+        if view is not None:
+            def reuse(items, cached):
+                result = []
+                for item in items:
+                    existing = cached.get(item.id_token, {}).get("model")
+                    if existing is not None:
+                        for field in fields(item):
+                            setattr(existing, field.name, getattr(item, field.name))
+                        item = existing
+                    result.append(item)
+                return result
+            self.key_configs = reuse(self.key_configs, view["configs"])
+            self.sequence_groups = reuse(self.sequence_groups, view["groups"])
         
     @editable_only
     def save_current_configs_to_profiles(
@@ -853,6 +873,17 @@ class ClickerApp:
 
     @editable_only
     def on_profile_changed(self, event=None):
+        if self.profile_var.get().strip() == self.active_profile:
+            return
+        focused = self.root.focus_get()
+        for config in self.key_configs:
+            widgets = self.config_widgets.get(id(config), {})
+            for field, name in (("interval", "int_entry"), ("random", "rand_entry")):
+                if focused is widgets.get(name):
+                    self.auto_save_timing(config, focused, field)
+        for group in self.sequence_groups:
+            if focused is self.group_widgets.get(group.id_token, {}).get("name_entry"):
+                self.save_group_name(group, focused)
         self.cancel_pixel_pick()
         self.save_current_configs_to_profiles(update_workers=False)
         new_profile = self.profile_var.get().strip()
@@ -922,6 +953,8 @@ class ClickerApp:
         for section in ("profiles", "groups"):
             values = self.profiles_data.setdefault(section, {})
             self.profiles_data[section] = {name if key == old else key: value for key, value in values.items()}
+        if old in self._profile_views:
+            self._profile_views[name] = self._profile_views.pop(old)
         self.active_profile = name
         self.profiles_data["active_profile"] = name
         self.save_profile_document()
@@ -1101,6 +1134,11 @@ class ClickerApp:
     @editable_only
     def save_group_name(self, group: SequenceGroup, entry: tk.Entry) -> None:
         name = entry.get().strip()[:40] or "İsimsiz Grup"
+        if group.name == name:
+            if entry.get() != name:
+                entry.delete(0, tk.END)
+                entry.insert(0, name)
+            return
         group.name = name
         entry.delete(0, tk.END)
         entry.insert(0, name)
@@ -1313,19 +1351,19 @@ class ClickerApp:
         group: SequenceGroup,
         parent: tk.Misc,
     ) -> None:
-        border_color = self.accent_color
+        border_color = "#384d66"
         outer = tk.Frame(
             parent,
             bg=border_color,
             padx=1,
             pady=1,
         )
-        outer.pack(fill="x", padx=(3, 0), pady=3)
+        outer.pack(fill="x", padx=1, pady=(3, 8))
 
-        card = tk.Frame(outer, bg=self.card_color, padx=4, pady=4)
+        card = tk.Frame(outer, bg="#111c2b", padx=5, pady=5)
         card.pack(fill="x")
 
-        header = tk.Frame(card, bg=self.card_color)
+        header = tk.Frame(card, bg="#1b2a3e", padx=4, pady=4)
         header.pack(fill="x")
 
         enabled_var = tk.IntVar(value=int(group.enabled))
@@ -1342,7 +1380,7 @@ class ClickerApp:
             bg=self.input_bg,
             fg=self.text_primary,
             insertbackground=self.text_primary,
-            bd=0,
+            bd=0, highlightthickness=0,
             font=("Segoe UI", 9, "bold"), width=8,
         )
         name_entry.insert(0, group.name)
@@ -1391,26 +1429,14 @@ class ClickerApp:
         )
         add_key_button.pack(side="right")
 
-        _roles, errors = writing_layout(group)
-        if errors:
-            tk.Button(card, text="Yazı eksik · Düzelt", bg=self.input_bg, fg=self.danger_color,
-                      bd=0, command=lambda g=group: self.repair_writing(g)).pack(anchor="w")
-        children_frame = tk.Frame(card, bg=self.card_color)
-        children_frame.pack(fill="x")
-
-        for item in group.children:
-            if item.kind == "macro":
-                config = self._find_config(item.macro_id)
-                if config is not None:
-                    self.draw_card_row(config, parent=children_frame, group=group)
-
-        self.group_widgets[group.id_token] = {
-            "outer": outer,
-            "check": group_check,
-            "enabled_var": enabled_var,
-        }
-        if not group.enabled:
-            self.fade_widgets(outer, True, locked=True, exception=group_check)
+        error_btn = tk.Button(card, text="Yazı eksik · Düzelt", bg=self.input_bg, fg=self.danger_color,
+                              bd=0, command=lambda g=group: self.repair_writing(g))
+        children_frame = tk.Frame(card, bg="#111c2b")
+        children_frame.pack(fill="x", pady=(4, 0))
+        self.group_widgets[group.id_token] = dict(outer=outer, check=group_check,
+            enabled_var=enabled_var, name_entry=name_entry, children=children_frame,
+            header=header, error=error_btn, model=group, signature=None)
+        return self.group_widgets[group.id_token]
 
     @editable_only
     def toggle_group_enabled(self, group, variable):
@@ -1444,9 +1470,12 @@ class ClickerApp:
                     color = "#" + "".join(f"{round((a * 0.22 + b * 0.78) / 257):02x}" for a, b in zip(source, target))
                 except tk.TclError:
                     continue
-            widget.configure(**{key: color})
+            if str(widget.cget(key)) != str(color):
+                widget.configure(**{key: color})
             widget._applied_fade_colors[key] = widget.cget(key)
         if locked and widget is not exception and isinstance(widget, (tk.Button, tk.Entry, tk.Checkbutton, tk.Menubutton)):
+            if not hasattr(widget, "_group_lock_state"):
+                widget._group_lock_state = widget.cget("state")
             widget.configure(state="disabled")
         for child in widget.winfo_children():
             self.fade_widgets(child, faded, locked=locked, exception=exception)
@@ -1457,245 +1486,323 @@ class ClickerApp:
             outer = widgets.get("outer")
             group = next((g for g in self.sequence_groups if g.id_token == group_id), None)
             if outer and outer.winfo_exists():
-                outer.configure(
-                    bg=self.border_color if group is not None and not group.enabled else self.success_color if active else self.accent_color
-                )
+                color = self.border_color if group is not None and not group.enabled else self.success_color if active else "#384d66"
+                if outer.cget("bg") != color:
+                    outer.configure(bg=color)
+
+    @staticmethod
+    def arrange_cards(parent, widgets):
+        current = list(parent.pack_slaves())
+        if current == widgets:
+            return
+        # Move existing windows; no destroy/recreate or detach of unaffected rows.
+        for index, widget in enumerate(widgets):
+            if index < len(current) and current[index] is widget:
+                continue
+            if widget in current:
+                current.remove(widget)
+            if index < len(current):
+                widget.pack_configure(before=current[index])
+            else:
+                widget.pack_configure()
+            current.insert(index, widget)
 
     def refresh_keys_list_ui(self):
         self.finish_group_drag(None)
-        self._group_cards = {}
+        canvas = self.list_container.canvas
+        view = self._profile_views.get(self.active_profile)
+        switched = view is None or view is not self._current_view
+        if switched and self._current_view is not None:
+            self._current_view["scroll"] = canvas.yview()[0]
+            self._current_view["frame"].pack_forget()
+        if view is None:
+            view = dict(frame=tk.Frame(self.list_container.scrollable_frame, bg=self.bg_color),
+                        configs={}, groups={}, scroll=0.0)
+            self._profile_views[self.active_profile] = view
+        self._current_view = view
+        if switched:
+            view["frame"].pack(fill="x")
+        self._profile_views.move_to_end(self.active_profile)
+        # Bound hidden native windows and release views of deleted profiles.
+        for name in list(self._profile_views):
+            if name != self.active_profile and (name not in self.profiles_data["profiles"] or len(self._profile_views) > 3):
+                self._profile_views.pop(name)["frame"].destroy()
         self.sequence_groups = flatten_groups(self.sequence_groups)
-        for widget in self.list_container.scrollable_frame.winfo_children():
-            widget.destroy()
-
-        self.config_widgets = {}
-        self.group_widgets = {}
-
-        if not self.key_configs and not self.sequence_groups:
-            self.draw_markers()
-            return
-
-        if self.sequence_groups:
-            for group in self.sequence_groups:
-                self.draw_sequence_group(
-                    group,
-                    self.list_container.scrollable_frame,
-                )
-
-        assigned_ids = grouped_macro_ids(self.sequence_groups)
-        ungrouped = [
-            config
-            for config in self.key_configs
-            if config.id_token not in assigned_ids
-        ]
-        if ungrouped:
-            for config in ungrouped:
-                self.draw_card_row(config)
-
+        configs = {config.id_token: config for config in self.key_configs}
+        groups = {group.id_token: group for group in self.sequence_groups}
+        parents = {item.macro_id: group.id_token for group in self.sequence_groups for item in group.children}
+        # Remove only deleted rows, moved parents, or replaced model objects.
+        replaced_groups = {key for key, widgets in view["groups"].items()
+                           if key not in groups or widgets["model"] is not groups[key]}
+        for key, widgets in list(view["configs"].items()):
+            if widgets["parent_id"] in replaced_groups or key not in configs or widgets["model"] is not configs[key] or widgets["parent_id"] != parents.get(key) or not widgets["card"].winfo_exists():
+                if widgets["card"].winfo_exists():
+                    widgets["card"].destroy()
+                del view["configs"][key]
+        for key, widgets in list(view["groups"].items()):
+            if key not in groups or widgets["model"] is not groups[key]:
+                widgets["outer"].destroy()
+                del view["groups"][key]
+        self.group_widgets = view["groups"]
+        self.config_widgets = {id(w["model"]): w for w in view["configs"].values()}
+        self._group_cards = {}
+        contexts = {group.id_token: self.writing_context(group) for group in self.sequence_groups}
+        self._reconcile_contexts = contexts
+        roots = []
+        for group in self.sequence_groups:
+            widgets = self.group_widgets.get(group.id_token)
+            if widgets is None:
+                widgets = self.draw_sequence_group(group, view["frame"])
+            signature = (group.name, group.enabled, bool(writing_layout(group)[1]))
+            if widgets["signature"] != signature:
+                if widgets["name_entry"].get() != group.name:
+                    widgets["name_entry"].delete(0, "end")
+                    widgets["name_entry"].insert(0, group.name)
+                self.restore_group_controls(widgets["header"])
+                widgets["enabled_var"].set(int(group.enabled))
+                self.fade_widgets(widgets["header"], not group.enabled, locked=not group.enabled, exception=widgets["check"])
+                if signature[2]:
+                    widgets["error"].pack(fill="x", before=widgets["children"])
+                else:
+                    widgets["error"].pack_forget()
+                widgets["signature"] = signature
+            children = []
+            for item in group.children:
+                config = configs.get(item.macro_id)
+                if config is None:
+                    continue
+                card = self.reconcile_card(view, config, group, widgets["children"], contexts[group.id_token])
+                children.append(card)
+            self.arrange_cards(widgets["children"], children)
+            self._group_cards[group.id_token] = [(item.macro_id, view["configs"][item.macro_id]["card"])
+                for item in group.children if item.macro_id in view["configs"]]
+            roots.append(widgets["outer"])
+        for config in self.key_configs:
+            if config.id_token not in parents:
+                roots.append(self.reconcile_card(view, config, None, view["frame"], {}))
+        self.arrange_cards(view["frame"], roots)
         self.update_group_states()
         self.draw_markers()
+        if switched:
+            canvas.update_idletasks()
+            canvas.yview_moveto(view["scroll"])
+
+    def reconcile_card(self, view, config, group, parent, context):
+        widgets = view["configs"].get(config.id_token)
+        if widgets is None:
+            widgets = self.draw_card_row(config, parent=parent, group=group)
+            widgets["parent_id"] = group.id_token if group else None
+            view["configs"][config.id_token] = widgets
+        else:
+            self.sync_card(widgets, config, group, context)
+        self.config_widgets[id(config)] = widgets
+        return widgets["card"]
 
     def draw_card_row(self, config: KeyConfig, parent: tk.Misc | None = None, group=None):
-        if hasattr(self, "empty_lbl") and self.empty_lbl.winfo_exists():
-            self.empty_lbl.destroy()
-
-        card = tk.Frame(
-            parent or self.list_container.scrollable_frame, bg=self.card_color,
-            bd=0, highlightbackground=self.border_color, highlightthickness=1
-        )
-        card.pack(fill="x", pady=3, padx=0)
-        
-        # 1. Satır: Tuş Seçici
-        row1 = tk.Frame(card, bg=self.card_color)
-        row1.pack(fill="x", padx=5, pady=(4, 0))
-        
+        parent = parent or getattr(self, "_current_view", {}).get("frame", self.list_container.scrollable_frame)
+        card = tk.Frame(parent, bg=self.card_color, bd=0,
+                        highlightbackground="#415773", highlightthickness=1)
+        card.pack(fill="x", pady=5, padx=2)
+        stripe = tk.Frame(card, bg=self.accent_color, width=3)
+        stripe.pack(side="left", fill="y")
+        rail = tk.Frame(card, bg=self.card_color, padx=5, pady=6)
+        rail.pack(side="right", fill="y")
+        order = tk.Frame(rail, bg=self.card_color)
+        order.pack(anchor="n", pady=(0, 5))
+        handle = tk.Label(order, text="⠿", bg=self.card_color, fg=self.text_secondary,
+                          cursor="fleur", font=("Segoe UI", 10))
+        arrows = []
         if group is not None:
-            self._group_cards.setdefault(group.id_token, []).append((config.id_token, card))
-            roles, errors = writing_layout(group)
-            role, _block = roles.get(config.id_token, (None, None))
-            handle = tk.Label(row1, text="⠿", bg=self.card_color, fg=self.text_secondary,
-                              cursor="fleur", font=("Segoe UI", 10))
             handle.pack(side="left")
-            if role != "close" and not errors:
+            for label, direction in (("↑", -1), ("↓", 1)):
+                arrow = tk.Button(order, text=label, bd=0, highlightthickness=0, bg=self.input_bg,
+                    fg=self.text_secondary, activebackground=self.border_color,
+                    padx=2, pady=0, font=("Segoe UI", 8),
+                    command=lambda g=group, k=config.id_token, d=direction: self.step_group_key(g, k, d))
+                arrow.pack(side="left")
+                arrows.append(arrow)
+        else:
+            order.pack_forget()
+        delete = tk.Button(rail, text="Sil", bg="#382936", fg="#f2a5b2", bd=0, highlightthickness=0,
+            activebackground=self.danger_color, activeforeground="white",
+            font=("Segoe UI", 8, "bold"), padx=10, pady=4,
+            command=lambda cfg=config: self.delete_key_config(cfg))
+        delete.pack(fill="x")
+
+        row1 = tk.Frame(card, bg="#2a3b51", padx=6, pady=5)
+        row1.pack(fill="x", padx=(5, 0), pady=(5, 2))
+        key_btn = tk.Button(row1, text=config.key.upper(), font=("Segoe UI", 8, "bold"),
+            bg="#36587d", fg=self.text_primary, bd=0, highlightthickness=0, activebackground=self.accent_color,
+            activeforeground="white", padx=7, pady=3)
+        key_btn.pack(side="left", padx=(0, 7))
+        key_btn.configure(command=lambda cfg=config, btn=key_btn: self.start_key_capture("key", cfg, btn))
+        tk.Label(row1, text="Aralık", bg="#2a3b51", fg=self.text_secondary,
+                 font=("Segoe UI", 8)).pack(side="left")
+        int_entry = self.create_modern_entry(row1, width=5)
+        int_entry.frame.pack(side="left", padx=(3, 6))
+        int_entry.insert(0, f"{config.interval_seconds:.3f}")
+        int_entry._saved_value = lambda cfg=config: f"{cfg.interval_seconds:.3f}"
+        tk.Label(row1, text="±", bg="#2a3b51", fg=self.text_secondary,
+                 font=("Segoe UI", 9)).pack(side="left")
+        rand_entry = self.create_modern_entry(row1, width=5)
+        rand_entry.frame.pack(side="left", padx=(3, 0))
+        rand_entry.insert(0, f"{config.random_seconds:.3f}")
+        rand_entry._saved_value = lambda cfg=config: f"{cfg.random_seconds:.3f}"
+        for entry, field in ((int_entry, "interval"), (rand_entry, "random")):
+            entry.bind("<FocusOut>", lambda e, cfg=config, w=entry, f=field: self.auto_save_timing(cfg, w, f))
+            entry.bind("<Return>", lambda e, cfg=config, w=entry, f=field: (self.auto_save_timing(cfg, w, f), self.root.focus_set()))
+
+        row3 = tk.Frame(card, bg=self.card_color)
+        row3.pack(fill="x", padx=(6, 0), pady=(0, 3))
+        def check(text, value, command):
+            variable = tk.IntVar(value=int(value))
+            button = tk.Checkbutton(row3, text=text, variable=variable,
+                bg=self.card_color, fg=self.text_primary, selectcolor=self.input_bg,
+                activebackground=self.card_color, activeforeground=self.text_primary,
+                font=("Segoe UI", 8), bd=0, highlightthickness=0, padx=2,
+                command=lambda: command(variable))
+            button.var = variable
+            button.pack(side="left", padx=(0, 5))
+            return button, variable
+        chk, var = check("Aktif", config.enabled, lambda v: self.toggle_key_enabled(config, v))
+        chk_screen, screen_var = check("İzleme", config.screen_mode, lambda v: self.toggle_screen_mode(config, v))
+        writing_check = None
+        if group is not None:
+            writing_check, _writing_var = check("Yazı açıyor", False,
+                lambda _v: self.toggle_writing(group, config.id_token))
+
+        screen_frame = tk.Frame(card, bg=self.card_color)
+        pixel_btn = tk.Button(screen_frame, text="Piksel Seç", font=("Segoe UI", 8),
+            bg=self.input_bg, fg=self.text_primary, bd=0, highlightthickness=0, activebackground=self.border_color,
+            activeforeground="white", padx=7, pady=3)
+        pixel_btn.pack(side="left")
+        coord_lbl = tk.Label(screen_frame, text="—", bg=self.card_color,
+                            fg=self.text_secondary, font=("Segoe UI", 8))
+        coord_lbl.pack(side="left", padx=6)
+        color_preview = tk.Canvas(screen_frame, width=12, height=12,
+            bg=config.target_color or self.input_bg, highlightthickness=1,
+            highlightbackground=self.border_color)
+        pixel_btn.configure(command=lambda cfg=config, btn=pixel_btn, lbl=coord_lbl, preview=color_preview: self.start_pixel_capture(cfg, btn, lbl, preview))
+
+        click_frame = tk.Frame(card, bg=self.card_color)
+        loc_btn = tk.Button(click_frame, text="Konum Seç", font=("Segoe UI", 8),
+            bg=self.input_bg, fg=self.text_primary, bd=0, highlightthickness=0, activebackground=self.border_color,
+            activeforeground="white", padx=7, pady=3)
+        loc_btn.pack(side="left")
+        loc_lbl = tk.Label(click_frame, text="İmleç", bg=self.card_color,
+                           fg=self.text_secondary, font=("Segoe UI", 8))
+        loc_lbl.pack(side="left", padx=6)
+        loc_btn.configure(command=lambda cfg=config, btn=loc_btn, lbl=loc_lbl: self.start_click_capture(cfg, btn, lbl))
+        reset_btn = tk.Button(click_frame, text="↺", font=("Segoe UI", 10),
+            bg=self.card_color, fg=self.text_secondary, bd=0, highlightthickness=0,
+            activebackground=self.border_color, activeforeground=self.text_primary,
+            command=lambda cfg=config, lbl=loc_lbl: self.reset_click_coordinate(cfg, lbl))
+        reset_btn.pack(side="left", padx=2)
+        widgets = dict(card=card, chk_var=var, chk=chk, key_btn=key_btn,
+            int_entry=int_entry, rand_entry=rand_entry, screen_var=screen_var,
+            screen_frame=screen_frame, coord_lbl=coord_lbl, color_preview=color_preview,
+            pixel_btn=pixel_btn, click_frame=click_frame, loc_lbl=loc_lbl, loc_btn=loc_btn,
+            writing_check=writing_check, handle=handle, arrows=arrows, rail=rail,
+            delete_btn=delete, stripe=stripe, model=config, group=group, signature=None)
+        self.config_widgets[id(config)] = widgets
+        context = getattr(self, "_reconcile_contexts", {}).get(group.id_token) if group else {}
+        self.sync_card(widgets, config, group, context)
+        return widgets
+
+    def sync_card(self, widgets, config, group=None, context=None):
+        if context is None:
+            context = self.writing_context(group)
+        role, label, blocked = context.get(config.id_token, (None, "Yazı açıyor", False))
+        signature = (config.key, config.interval_seconds, config.random_seconds, config.enabled,
+            config.screen_mode, config.pixel_x, config.pixel_y, config.target_color,
+            config.click_x, config.click_y, role, label, blocked, group.enabled if group else True)
+        previous = widgets["signature"]
+        if signature == previous:
+            return
+        # Compare against model values, not partially edited entry text.
+        widgets["key_btn"].configure(text=config.key.upper())
+        for index, field in ((1, "int_entry"), (2, "rand_entry")):
+            entry = widgets[field]
+            if previous is not None and signature[index] != previous[index] and entry.get() != f"{signature[index]:.3f}":
+                entry.delete(0, "end")
+                entry.insert(0, f"{signature[index]:.3f}")
+        widgets["chk_var"].set(int(config.enabled))
+        widgets["screen_var"].set(int(config.screen_mode))
+        widgets["coord_lbl"].configure(text=f"({config.pixel_x}, {config.pixel_y})" if config.has_pixel_target else "—")
+        widgets["loc_lbl"].configure(text=f"({config.click_x}, {config.click_y})" if config.has_click_target else "İmleç")
+        if previous is None or signature[7] != previous[7]:
+            widgets["color_preview"].configure(bg=config.target_color or self.input_bg)
+        if config.screen_mode:
+            if not widgets["screen_frame"].winfo_manager():
+                widgets["screen_frame"].pack(fill="x", padx=(9, 0), pady=(0, 4))
+            widgets["color_preview"].pack(side="left", padx=2)
+        else:
+            widgets["screen_frame"].pack_forget()
+            widgets["color_preview"].pack_forget()
+        if config.key.strip().lower() in MOUSE_NAMES:
+            if not widgets["click_frame"].winfo_manager():
+                widgets["click_frame"].pack(fill="x", padx=(9, 0), pady=(0, 5))
+        else:
+            widgets["click_frame"].pack_forget()
+        if widgets["writing_check"] is not None:
+            check = widgets["writing_check"]
+            check.configure(text=label, state="disabled" if role == "body" else "normal")
+            check.var.set(int(role is not None))
+            handle = widgets["handle"]
+            for binding in ("<ButtonPress-1>", "<B1-Motion>", "<ButtonRelease-1>"):
+                handle.unbind(binding)
+            if not blocked:
                 handle.bind("<ButtonPress-1>", lambda e, g=group, k=config.id_token: self.start_group_drag(e, g, k))
                 handle.bind("<B1-Motion>", self.drag_group_key)
                 handle.bind("<ButtonRelease-1>", self.finish_group_drag)
-            for label, direction in (("↑", -1), ("↓", 1)):
-                tk.Button(row1, text=label, bd=0, bg=self.input_bg, fg=self.text_primary,
-                          padx=1, state="disabled" if role == "close" or errors else "normal",
-                          command=lambda g=group, k=config.id_token, d=direction: self.step_group_key(g, k, d)).pack(side="left")
+            for arrow in widgets["arrows"]:
+                arrow.configure(state="disabled" if blocked else "normal")
+        # Restore only states set by the group lock, preserving automatic body locks.
+        locked = group is not None and not group.enabled
+        if getattr(widgets["card"], "_group_locked", False) and not locked:
+            self.restore_group_controls(widgets["card"])
+            if role == "body":
+                widgets["writing_check"].configure(state="disabled")
+            for arrow in widgets["arrows"]:
+                arrow.configure(state="disabled" if blocked else "normal")
+        widgets["stripe"].configure(bg="#9580cd" if role is not None else self.accent_color)
+        self.fade_widgets(widgets["card"], locked or not config.enabled, locked=locked)
+        widgets["card"]._group_locked = locked
+        widgets["signature"] = signature
 
-        key_btn = tk.Button(
-            row1, text=config.key.upper(), font=("Segoe UI", 8, "bold"),
-            bg=self.input_bg, fg=self.text_primary, bd=0, activebackground=self.border_color,
-            activeforeground="white", padx=6, pady=2
-        )
-        key_btn.pack(side="left", padx=(2, 4))
-        key_btn.configure(command=lambda cfg=config, btn=key_btn: self.start_key_capture("key", cfg, btn))
-        
-        # 2. Satır: Aralık & Rastgelelik Girişleri
-        row2 = row1
-        
-        tk.Label(row2, text="Aralık", bg=self.card_color, fg=self.text_secondary, font=("Segoe UI", 8)).pack(side="left")
-        int_entry = self.create_modern_entry(row2, width=5)
-        int_entry.frame.pack(side="left", padx=(3, 4))
-        int_entry.insert(0, f"{config.interval_seconds:.3f}")
-        int_entry._saved_value = lambda cfg=config: f"{cfg.interval_seconds:.3f}"
-        
-        # Auto-save bindings for interval
-        int_entry.bind("<FocusOut>", lambda e, cfg=config, entry=int_entry: self.auto_save_timing(cfg, entry, "interval"))
-        int_entry.bind("<Return>", lambda e, cfg=config, entry=int_entry: (self.auto_save_timing(cfg, entry, "interval"), self.root.focus_set()))
-        
-        tk.Label(row2, text="± sn", bg=self.card_color, fg=self.text_secondary, font=("Segoe UI", 8)).pack(side="left")
-        rand_entry = self.create_modern_entry(row2, width=5)
-        rand_entry.frame.pack(side="left", padx=5)
-        rand_entry.insert(0, f"{config.random_seconds:.3f}")
-        rand_entry._saved_value = lambda cfg=config: f"{cfg.random_seconds:.3f}"
-        
-        # Auto-save bindings for randomness
-        rand_entry.bind("<FocusOut>", lambda e, cfg=config, entry=rand_entry: self.auto_save_timing(cfg, entry, "random"))
-        rand_entry.bind("<Return>", lambda e, cfg=config, entry=rand_entry: (self.auto_save_timing(cfg, entry, "random"), self.root.focus_set()))
-        
-        # 3. Satır: Durum & İzleme & Sil Butonları
-        row3 = tk.Frame(card, bg=self.card_color)
-        row3.pack(fill="x", padx=5, pady=(1, 3))
-        
-        var = tk.IntVar(value=1 if config.enabled else 0)
-        chk = tk.Checkbutton(
-            row3, text="Aktif", variable=var,
-            bg=self.card_color, fg=self.text_primary, selectcolor=self.input_bg,
-            activebackground=self.card_color, activeforeground=self.text_primary,
-            font=("Segoe UI", 8, "bold"),
-            command=lambda cfg=config, v=var: self.toggle_key_enabled(cfg, v)
-        )
-        chk.pack(side="left")
-        chk.var = var
-        
-        screen_var = tk.IntVar(value=1 if config.screen_mode else 0)
-        chk_screen = tk.Checkbutton(
-            row3, text="İzleme", variable=screen_var,
-            bg=self.card_color, fg=self.text_primary, selectcolor=self.input_bg,
-            activebackground=self.card_color, activeforeground=self.text_primary,
-            font=("Segoe UI", 8, "bold"),
-            command=lambda cfg=config, sv=screen_var: self.toggle_screen_mode(cfg, sv)
-        )
-        chk_screen.pack(side="left", padx=(10, 0))
-        chk_screen.var = screen_var
-        
-        if group is not None:
-            roles, _errors = writing_layout(group)
-            role, _block = roles.get(config.id_token, (None, None))
-            pending = next((b for b in group.writing_blocks if not b.closing), None)
-            ids = [item.macro_id for item in group.children]
-            after_opening = pending is not None and pending.opening in ids and ids.index(config.id_token) > ids.index(pending.opening)
-            label = {"open": "Yazı açıyor", "close": "Yazı kapatıyor", "body": "Yazı"}.get(role,
-                     "Yazı kapatıyor" if after_opening else "Yazı açıyor")
-            writing_var = tk.IntVar(value=int(role is not None))
-            writing_check = tk.Checkbutton(row3, text=label, variable=writing_var,
-                bg=self.card_color, fg=self.text_primary, selectcolor=self.input_bg,
-                activebackground=self.card_color, activeforeground=self.text_primary,
-                font=("Segoe UI", 8, "bold"), state="disabled" if role == "body" else "normal",
-                command=lambda g=group, k=config.id_token: self.toggle_writing(g, k))
-            writing_check.var = writing_var
-            writing_check.pack(side="left", padx=(3, 0))
+    def writing_context(self, group):
+        if group is None:
+            return {}
+        roles, errors = writing_layout(group)
+        ids = [item.macro_id for item in group.children]
+        pending = next((b for b in group.writing_blocks if not b.closing), None)
+        opening = ids.index(pending.opening) if pending and pending.opening in ids else len(ids)
+        return {key: (roles.get(key, (None, None))[0],
+            {"open": "Yazı açıyor", "close": "Yazı kapatıyor", "body": "Yazı"}.get(
+                roles.get(key, (None, None))[0], "Yazı kapatıyor" if index > opening else "Yazı açıyor"),
+            bool(errors) or roles.get(key, (None, None))[0] == "close")
+            for index, key in enumerate(ids)}
 
-        del_btn = tk.Button(
-            row3, text="Sil", font=("Segoe UI", 8, "bold"),
-            bg=self.danger_color, fg="white", bd=0, activebackground=self.danger_hover,
-            activeforeground="white", padx=12, pady=2,
-            command=lambda cfg=config: self.delete_key_config(cfg)
-        )
-        del_btn.pack(side="right")
-        
-        # 4. Satır: Ekran İzleme Ayarları (Collapsible Frame)
-        screen_frame = tk.Frame(card, bg=self.card_color)
-        
-        # Piksel Seç Butonu
-        pixel_btn = tk.Button(
-            screen_frame, text="Piksel Seç", font=("Segoe UI", 8, "bold"),
-            bg=self.input_bg, fg=self.text_primary, bd=0, activebackground=self.border_color,
-            activeforeground="white", padx=6, pady=2
-        )
-        pixel_btn.pack(side="left")
-        
-        # Konum & Renk Geri Bildirimi
-        coord_lbl = tk.Label(
-            screen_frame, text=f" ({config.pixel_x}, {config.pixel_y})" if config.has_pixel_target else "—",
-            bg=self.card_color, fg=self.text_secondary, font=("Segoe UI", 8)
-        )
-        coord_lbl.pack(side="left", padx=(10, 5))
-        
-        color_preview = tk.Canvas(
-            row1, width=12, height=12,
-            bg=config.target_color if config.target_color else self.input_bg,
-            highlightthickness=1, highlightbackground=self.border_color
-        )
-        if config.screen_mode:
-            color_preview.pack(side="left", padx=2)
-        
-        pixel_btn.configure(command=lambda cfg=config, btn=pixel_btn, lbl=coord_lbl, preview=color_preview: self.start_pixel_capture(cfg, btn, lbl, preview))
-        
-        # Ekran modu aciksa frame'i paketle
-        if config.screen_mode:
-            screen_frame.pack(fill="x", padx=5, pady=1)
-            
-        # 5. Satır: Tıklama Hedef Koordinat Ayarları (Collapsible Frame)
-        click_frame = tk.Frame(card, bg=self.card_color, pady=2)
-        
-        # Konum Seç Butonu
-        loc_btn = tk.Button(
-            click_frame, text="Konum Seç", font=("Segoe UI", 8, "bold"),
-            bg=self.input_bg, fg=self.text_primary, bd=0, activebackground=self.border_color,
-            activeforeground="white", padx=6, pady=2
-        )
-        loc_btn.pack(side="left")
-        
-        # Seçili Koordinat Geri Bildirimi
-        loc_lbl = tk.Label(
-            click_frame, text=f" ({config.click_x}, {config.click_y})" if config.has_click_target else "İmleç",
-            bg=self.card_color, fg=self.text_secondary, font=("Segoe UI", 8)
-        )
-        loc_lbl.pack(side="left", padx=10)
-        
-        loc_btn.configure(command=lambda cfg=config, btn=loc_btn, lbl=loc_lbl: self.start_click_capture(cfg, btn, lbl))
-        
-        # Sıfırla Butonu
-        reset_btn = tk.Button(
-            click_frame, text="Sıfırla", font=("Segoe UI", 8, "bold"),
-            bg=self.danger_color, fg="white", bd=0, activebackground=self.danger_hover,
-            activeforeground="white", padx=8, pady=2,
-            command=lambda cfg=config, lbl=loc_lbl: self.reset_click_coordinate(cfg, lbl)
-        )
-        reset_btn.pack(side="right")
-        
-        # Fare tuşu ise konum seç panelini paketle
-        is_mouse = config.key.lower() in (
-            "sol klik", "left click", "sol tık",
-            "sağ klik", "sag klik", "right click", "sağ tık",
-            "orta klik", "middle click", "orta tık",
-            "mouse x1", "mouse x2", "x1", "x2",
-        )
-        if is_mouse:
-            click_frame.pack(fill="x", padx=5, pady=1)
-            
-        self.config_widgets[id(config)] = {
-            "card": card,
-            "chk_var": var,
-            "key_btn": key_btn,
-            "int_entry": int_entry,
-            "rand_entry": rand_entry,
-            "screen_var": screen_var,
-            "screen_frame": screen_frame,
-            "coord_lbl": coord_lbl,
-            "color_preview": color_preview,
-            "pixel_btn": pixel_btn,
-            "click_frame": click_frame,
-            "loc_lbl": loc_lbl,
-            "loc_btn": loc_btn
-        }
-        self.fade_widgets(card, not config.enabled)
+    def restore_group_controls(self, widget):
+        if hasattr(widget, "_group_lock_state"):
+            widget.configure(state=widget._group_lock_state)
+            del widget._group_lock_state
+        for child in widget.winfo_children():
+            self.restore_group_controls(child)
 
     def cancel_pixel_pick(self) -> None:
+        previous = getattr(self, "capturing_target", None)
+        if previous is not None:
+            kind, config, button = previous
+            if button is not None and button.winfo_exists():
+                label = self.clicker.app_config.panic_key if kind == "panic" else config.key
+                palette = getattr(button, "_unfaded_colors", {})
+                button.configure(text=label.upper(), bg=palette.get("background", self.input_bg),
+                                 fg=palette.get("foreground", self.text_primary))
+                if config is not None:
+                    self.fade_widgets(button, not config.enabled)
+        self.capturing_target = None
+        self.clicker.capturing_callback = None
         pending = self._pending_pixel_pick
         self._pending_pixel_pick = None
         click_pending = getattr(self, "_pending_click_pick", None)
@@ -1861,6 +1968,12 @@ class ClickerApp:
                 val = clamped
             if val < 0:
                 raise ValueError("Değer negatif olamaz.")
+            existing = config.interval_seconds if field_type == "interval" else config.random_seconds
+            if val == existing:
+                if entry.get() != f"{val:.3f}":
+                    entry.delete(0, tk.END)
+                    entry.insert(0, f"{val:.3f}")
+                return
             if field_type == "interval":
                 if val <= 0:
                     raise ValueError("Aralık 0'dan büyük olmalıdır.")
@@ -1905,8 +2018,11 @@ class ClickerApp:
         self.key_configs.append(config)
         self.save_current_configs_to_profiles(update_workers=True)
         
-        self.draw_card_row(config)
-        self.draw_markers()
+        if hasattr(self, "_profile_views"):
+            self.refresh_keys_list_ui()
+        else:
+            self.draw_card_row(config)
+            self.draw_markers()
         
         self.list_container.scrollable_frame.update_idletasks()
         self.list_container.canvas.configure(scrollregion=self.list_container.canvas.bbox("all"))
@@ -1916,13 +2032,6 @@ class ClickerApp:
     def delete_key_config(self, config: KeyConfig):
         if getattr(self, "_preview_config", None) is config:
             self.cancel_pixel_pick()
-        cfg_id = id(config)
-        if cfg_id in self.config_widgets:
-            self.config_widgets[cfg_id]["screen_frame"].pack_forget()
-            self.config_widgets[cfg_id]["click_frame"].pack_forget()
-            self.config_widgets[cfg_id]["card"].destroy()
-            del self.config_widgets[cfg_id]
-            
         self.key_configs.remove(config)
         group_changed = self._remove_macro_from_groups(config.id_token)
         self.save_current_configs_to_profiles(
@@ -1930,8 +2039,7 @@ class ClickerApp:
             update_sequences=group_changed,
         )
         
-        if group_changed or not self.key_configs:
-            self.refresh_keys_list_ui()
+        self.refresh_keys_list_ui()
             
         self.list_container.scrollable_frame.update_idletasks()
         self.list_container.canvas.configure(scrollregion=self.list_container.canvas.bbox("all"))
@@ -2008,7 +2116,8 @@ class ClickerApp:
             for child in widget.winfo_children():
                 lock_widget(child)
 
-        for container in (self.profile_frame, self.list_header, self.list_container.scrollable_frame, self.chk_topmost):
+        list_frame = self._current_view["frame"] if self._current_view else self.list_container.scrollable_frame
+        for container in (self.profile_frame, self.list_header, list_frame, self.chk_topmost):
             lock_widget(container)
 
     def update_running_ui(self, active: bool):

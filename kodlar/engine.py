@@ -16,7 +16,7 @@ from .models import KeyConfig, key_config_from_dict, clamp_click_interval
 from .profile_store import DEFAULT_PROFILE, load_profiles
 from .sequence_runner import SequenceRunner
 from .sequences import SequenceGroup, grouped_macro_ids, sequence_groups_from_list, flatten_groups
-from .workers import KeyClickerWorker, StepResult
+from .workers import KeyClickerWorker, StepResult, MOUSE_NAMES
 from .writing import WritingGate
 from .platform_win import foreground_window, foreground_is_ours
 from .sequences import writing_layout
@@ -64,6 +64,7 @@ class RandomizedAutoClicker:
         self.key_workers: list[KeyClickerWorker] = []
         self.sequence_groups: list[SequenceGroup] = []
         self._group_workers: dict[str, KeyClickerWorker] = {}
+        self._worker_entries = {}
 
         self.enabled_event = threading.Event()
         self.stop_event = threading.Event()
@@ -380,6 +381,7 @@ class RandomizedAutoClicker:
         self.update_key_workers(configs, force_restart=restart)
 
     def _stop_workers(self) -> bool:
+        self._worker_entries.clear()
         for worker in self._group_workers.values():
             worker.stop()
         self._group_workers.clear()
@@ -400,32 +402,47 @@ class RandomizedAutoClicker:
             self.log(f"Bazı makro iş parçacıkları zamanında kapanmadı: {names}")
         return not alive
 
-    def update_key_workers(
-        self,
-        configs: list[KeyConfig],
-        *,
-        force_restart: bool = True,
-    ) -> None:
+    @staticmethod
+    def worker_mode(config, grouped):
+        # Timing, RGB and coordinates are read live. Only loop architecture needs a restart.
+        return (grouped, config.screen_mode, config.key.strip().lower() in MOUSE_NAMES,
+                config.action_chain, config.has_click_target,
+                any(a.get("type") == "Sustur" and a.get("use_color_change") for a in config.actions))
+
+    def update_key_workers(self, configs: list[KeyConfig], *, force_restart: bool = True) -> None:
         with self.worker_lock:
             self.key_configs = list(configs)
-            if not force_restart and (self.key_workers or self._group_workers):
-                return
-
-            if not self._stop_workers():
-                self.log("Makrolar güvenli biçimde yenilenemedi; yeniden denenecek.")
-                return
             if self.stop_event.is_set():
                 return
-
             grouped = grouped_macro_ids(self.sequence_groups)
-            self.key_workers = []
-            for config in self.key_configs:
+            desired = {config.id_token: (config, self.worker_mode(config, config.id_token in grouped))
+                       for config in self.key_configs}
+            deadline = time.monotonic() + 1.5
+            for key, entry in list(self._worker_entries.items()):
+                config, mode = desired.get(key, (None, None))
+                if not entry["retiring"] and config is entry["config"] and mode == entry["mode"]:
+                    continue
+                worker = entry["worker"]
+                worker.stop()
+                entry["retiring"] = True
+                if not entry["mode"][0] and worker is not threading.current_thread():
+                    worker.join(timeout=max(0.0, deadline-time.monotonic()))
+                if not entry["mode"][0] and worker.is_alive():
+                    self.log_activity("worker-retiring:"+key, "Tuş çalışanı kapanıyor; yenisi henüz başlatılmadı.")
+                    continue
+                del self._worker_entries[key]
+            for key, (config, mode) in desired.items():
+                if key in self._worker_entries:
+                    continue
                 worker = KeyClickerWorker(config, self.keyboard, self)
-                if config.id_token in grouped:
-                    self._group_workers[config.id_token] = worker
-                else:
-                    self.key_workers.append(worker)
+                self._worker_entries[key] = dict(worker=worker, config=config, mode=mode, retiring=False)
+                if not mode[0]:
                     worker.start()
+            order = list(desired) + [key for key in self._worker_entries if key not in desired]
+            self.key_workers = [self._worker_entries[key]["worker"] for key in order
+                                if key in self._worker_entries and not self._worker_entries[key]["mode"][0]]
+            self._group_workers = {key: e["worker"] for key, e in self._worker_entries.items()
+                                   if e["mode"][0] and not e["retiring"]}
 
     def stop(self) -> None:
         if self.stop_event.is_set():

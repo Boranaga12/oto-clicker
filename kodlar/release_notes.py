@@ -1,15 +1,23 @@
 """Curated notes bundled with the matching application release."""
 
 CURRENT_NOTES = (
-    'Grup başlığındaki yuvarlak kaldırıldı; grubun tamamı bağımsız seçim kutusuyla açılıp kilitlenir.',
-    'Kilitli gruplar ve pasif tuşlar çok soluk görünür; grup kilidi tuşların Aktif ayarlarını değiştirmez.',
-    'Yeni tuşlarda rastgele süre varsayılanı 0.100 saniye oldu; mevcut süreler korunur.',
-    'İzlemesi kapalı tuşların renk kutusu gizlenir.',
-    'Varsayılan dahil bütün profillerin ismi ⋯ menüsünden değiştirilebilir.',
-    'Tümünü sıfırla menü seçeneği kaldırıldı.',
+    'Kartlar kalıcı kimlikleriyle güncellenir; ekleme, sıralama, yazı ve grup kilidinde liste baştan çizilmez.',
+    'Son üç profil görünümü ve kaydırma konumu saklanır; geri geçişte mevcut kartlar yeniden kullanılır.',
+    'Belirgin kart yüzeyleri, koyu giriş alanları ve yazı bölümleri için renk şeridi eklendi.',
+    'Sıralama okları ve sürükleme tutamacı Sil düğmesinin hemen üstüne taşındı.',
+    'Yalnızca çalışma biçimi değişen tuş çalışanı yenilenir; süre ve renk ayarları diğer çalışanları etkilemez.',
+    'Değişmeyen alanlarda gereksiz kayıt ve motor yenileme kaldırıldı; kaydırma yerleşimi birleştirilir.',
 )
 
 HISTORY = (
+    ("2.1.11", (
+        'Grup başlığındaki yuvarlak kaldırıldı; grubun tamamı bağımsız seçim kutusuyla açılıp kilitlenir.',
+        'Kilitli gruplar ve pasif tuşlar çok soluk görünür; grup kilidi tuşların Aktif ayarlarını değiştirmez.',
+        'Yeni tuşlarda rastgele süre varsayılanı 0.100 saniye oldu; mevcut süreler korunur.',
+        'İzlemesi kapalı tuşların renk kutusu gizlenir.',
+        'Varsayılan dahil bütün profillerin ismi ⋯ menüsünden değiştirilebilir.',
+        'Tümünü sıfırla menü seçeneği kaldırıldı.',
+    )),
     ("2.1.10", (
         'Grup tuşları tutamaçtan sürüklenerek veya ↑ / ↓ ile sıralanabilir.',
         'Yazı açıyor / Yazı / Yazı kapatıyor bölümleri eklendi; bir grupta birden fazla bölüm kullanılabilir.',

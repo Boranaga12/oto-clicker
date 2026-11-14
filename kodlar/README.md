@@ -248,3 +248,25 @@ kayıtlı süreleri değişmez. İzleme kapalıyken renk kutusu gösterilmez.
 Profil menüsündeki **⋯ → İsmi değiştir** işlemi Varsayılan dahil her profilde
 kullanılır. Tuşlar, gruplar, yazı bölümleri ve profil sırası korunur. Aynı isimle
 ikinci bir profil oluşturulamaz. Tümünü sıfırla seçeneği menüden kaldırılmıştır.
+
+
+## Kart güncellemeleri
+
+Kartlar tuş kimliğiyle eşleştirilir. Bir tuş eklemek yalnızca o kartı oluşturur;
+silme yalnızca ilgili kartı kaldırır. Sıralama mevcut pencereleri taşır; yazı
+etiketleri, grup kilidi ve ayarlar mevcut kontroller üzerinde güncellenir.
+Düzenlenmekte olan alanlar ve seçimler ilgisiz güncellemelerde korunur.
+
+Son üç profilin görünümü ve kaydırma konumu bellekte tutulur. Daha eski
+profillerin görünümü bellek kullanımını sınırlamak için bırakılır ve yeniden
+seçildiğinde oluşturulur. İlk açılışta ve bir kart başka bir gruba taşındığında
+yeni Tk üst öğesine ait kart oluşturulması gerekir.
+
+Süre, renk ve koordinat bilgileri mevcut tuş çalışanlarınca okunur. Yalnızca
+döngü biçimi değişen çalışan durdurulup yenilenir; kapanmayan eski çalışanın
+üstüne ikinci bir çalışan başlatılmaz. Aynı değerle alandan çıkmak veya mevcut
+profili tekrar seçmek diske kayıt ve motor yapılandırması başlatmaz.
+
+Kartlar belirgin yüzeyler ve kenar çizgileriyle ayrılır. Yazı bölümündeki kartlar
+mor şerit kullanır. Grup içindeki sürükleme ve ↑ / ↓ kontrolleri sağdaki Sil
+düğmesinin hemen üstündedir.

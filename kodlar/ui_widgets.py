@@ -6,8 +6,8 @@ from dataclasses import dataclass
 
 @dataclass(frozen=True, slots=True)
 class UITheme:
-    background: str = "#11161f"
-    card: str = "#1c2532"
+    background: str = "#0d1521"
+    card: str = "#243348"
     text_primary: str = "#f3f4f6"
     text_secondary: str = "#9ca3af"
     accent: str = "#3b82f6"
@@ -17,7 +17,7 @@ class UITheme:
     success: str = "#239d83"
     success_hover: str = "#059669"
     border: str = "#303e50"
-    input_background: str = "#303e50"
+    input_background: str = "#152131"
 
 
 DEFAULT_THEME = UITheme()
@@ -40,7 +40,10 @@ class ScrollableFrame(tk.Frame):
             anchor="nw",
         )
         self.canvas.configure(yscrollcommand=self.scrollbar.set)
+        self._region_job = None
+        self._content_width = None
         self.scrollable_frame.bind("<Configure>", self._update_scroll_region)
+        self.bind("<Destroy>", self._cleanup_layout, add="+")
         self.canvas.bind("<Configure>", self._resize_content)
         self.canvas.bind("<Enter>", self._bind_mousewheel)
         self.canvas.bind("<Leave>", self._unbind_mousewheel)
@@ -48,10 +51,22 @@ class ScrollableFrame(tk.Frame):
         self.scrollbar.pack(side="right", fill="y")
 
     def _update_scroll_region(self, _event: tk.Event) -> None:
+        if self._region_job is None:
+            self._region_job = self.after_idle(self._flush_scroll_region)
+
+    def _flush_scroll_region(self):
+        self._region_job = None
         self.canvas.configure(scrollregion=self.canvas.bbox("all"))
 
+    def _cleanup_layout(self, event):
+        if event.widget is self and self._region_job is not None:
+            self.after_cancel(self._region_job)
+            self._region_job = None
+
     def _resize_content(self, event: tk.Event) -> None:
-        self.canvas.itemconfigure(self.canvas_window, width=event.width)
+        if event.width != self._content_width:
+            self._content_width = event.width
+            self.canvas.itemconfigure(self.canvas_window, width=event.width)
 
     def _bind_mousewheel(self, _event: tk.Event) -> None:
         self.canvas.bind_all("<MouseWheel>", self._on_mousewheel)
