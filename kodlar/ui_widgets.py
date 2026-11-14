@@ -61,3 +61,74 @@ class ScrollableFrame(tk.Frame):
 
     def _on_mousewheel(self, event: tk.Event) -> None:
         self.canvas.yview_scroll(-(event.delta // 120), "units")
+
+
+class PointMarker(tk.Toplevel):
+    """A passive point with a transparent sampling center, not an input overlay."""
+
+    SIZE = 9
+    RADIUS = 4
+    TRANSPARENT = "#000001"
+
+    def __init__(self, parent, x: int, y: int, color: str, protected_points=()):
+        import os
+        from .platform_win import make_overlay_passive
+        super().__init__(parent)
+        try:
+            self.withdraw()
+            self.overrideredirect(True)
+            self.attributes("-topmost", True)
+            if os.name == "nt":
+                self.attributes("-transparentcolor", self.TRANSPARENT)
+                self.attributes("-disabled", True)
+            else:
+                self.attributes("-alpha", 0.7)
+            self.configure(bg=self.TRANSPARENT)
+            self.canvas = tk.Canvas(self, width=self.SIZE, height=self.SIZE,
+                                    bg=self.TRANSPARENT, highlightthickness=0)
+            self.canvas.pack()
+            self.color = color
+            self.point = (x, y)
+            self.protected = frozenset(protected_points) | {self.point}
+            self.geometry(f"{self.SIZE}x{self.SIZE}{x - self.RADIUS:+d}{y - self.RADIUS:+d}")
+            self.update_idletasks()
+            self._handle = make_overlay_passive(self.winfo_id())
+            self.deiconify()
+            self.update_idletasks()
+            self._handle = make_overlay_passive(self.winfo_id())
+            self.move(x, y)
+        except Exception:
+            self.destroy()
+            raise
+
+    def move(self, x: int, y: int) -> None:
+        from .platform_win import move_overlay
+        self.point = (x, y)
+        left, top = x - self.RADIUS, y - self.RADIUS
+        if self._handle is not None:
+            move_overlay(self._handle, left, top, self.SIZE)
+        else:
+            self.geometry(f"{self.SIZE}x{self.SIZE}{left:+d}{top:+d}")
+        self.paint()
+
+    def set_color(self, color: str) -> None:
+        if self.color != color:
+            self.color = color
+            self.paint()
+
+    def protect(self, points) -> None:
+        protected = frozenset(points)
+        if self.protected != protected:
+            self.protected = protected
+            self.paint()
+
+    def paint(self) -> None:
+        self.canvas.delete("all")
+        self.canvas.create_oval(1, 1, 7, 7, outline="#11161f", width=3)
+        self.canvas.create_oval(2, 2, 6, 6, outline=self.color, width=2)
+        # Preserve all sampled pixels, even where two nearby markers overlap.
+        for x, y in self.protected | {self.point}:
+            dx, dy = x - self.point[0] + self.RADIUS, y - self.point[1] + self.RADIUS
+            if -1 <= dx <= self.SIZE and -1 <= dy <= self.SIZE:
+                self.canvas.create_rectangle(dx - 1, dy - 1, dx + 2, dy + 2,
+                                             fill=self.TRANSPARENT, outline="")

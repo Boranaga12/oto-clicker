@@ -1,13 +1,21 @@
 """Curated notes bundled with the matching application release."""
 
 CURRENT_NOTES = (
-    'Piksel seçimi sol tıklamayla yapılır; F8 seçimi kaldırıldı.',
-    'İmlecin gri rengi örneklenmesin diye tıklamanın 8 piksel solu ve 8 piksel üstü okunur.',
-    'Referans ve çalışma sırasındaki okuma aynı kaydedilmiş koordinatı kullanır.',
-    'Önceden imleçten alınan referansları temizlemek için pikseli yeniden seçin.',
+    'İzleme ve tıklama işaretçileri makro çalışırken de görünür; tıklamayı geçirir ve odağı almaz.',
+    'Seçim beklerken tek nokta önizlemesi, noktanın rengi ve karttaki renk kutusu canlı güncellenir.',
+    'Önizleme kayıtlı referansı değiştirmez; izleme ve tıklama hedefleri ayrı korunur.',
+    'Alt grup ekleme kaldırıldı; eski alt grupların tuşları sırayla ana gruba aktarılır.',
+    'Gruplar aktif tuşları tek tek çalıştırıp tekrar eder; normal tekrar döngüleriyle çakışmaz.',
+    'Geçiş süresi alanı kaldırıldı; aralık + rastgele gecikme kullanılır ve basma süresi ayrıca eklenmez.',
 )
 
 HISTORY = (
+    ("2.1.8", (
+        'Piksel seçimi sol tıklamayla yapılır; F8 seçimi kaldırıldı.',
+        'İmlecin gri rengi örneklenmesin diye tıklamanın 8 piksel solu ve 8 piksel üstü okunur.',
+        'Referans ve çalışma sırasındaki okuma aynı kaydedilmiş koordinatı kullanır.',
+        'Önceden imleçten alınan referansları temizlemek için pikseli yeniden seçin.',
+    )),
     ("2.1.7", (
         'Kayıtlar fareyle sürüklenerek seçilebilir ve Ctrl+C ile kopyalanabilir.',
         'Seçim sırasında kayıt görünümü sabit kalır; seçim kalkınca bekleyen kayıtlar gösterilir.',

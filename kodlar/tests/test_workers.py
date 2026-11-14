@@ -248,17 +248,20 @@ class CaptureTests(unittest.TestCase):
         app.clicker.mouse.click.assert_not_called()
         app.markers['marker'].withdraw.assert_called()
 
-    def test_running_engine_removes_editing_markers(self):
+    def test_running_engine_keeps_selected_point_markers_visible(self):
         from kodlar.gui import ClickerApp
-
         app = ClickerApp.__new__(ClickerApp)
-        marker = Mock()
-        app.markers = {'screen': marker}
+        app.markers = {}
         app._shutting_down = False
+        app.root = Mock()
         app.clicker = Mock(is_running=True)
-        app.draw_markers()
-        marker.destroy.assert_called_once()
-        self.assertEqual(app.markers, {})
+        app.key_configs = [KeyConfig('sol klik', 1, 0, pixel_x=100, pixel_y=200,
+                                    target_color='#123456', click_x=300, click_y=400)]
+        factory = lambda _root, x, y, color, **_kwargs: Mock(point=(x, y))
+        with patch('kodlar.gui.PointMarker', side_effect=factory) as marker:
+            app.draw_markers()
+        self.assertEqual(marker.call_count, 2)
+        self.assertEqual({item.point for item in app.markers.values()}, {(100, 200), (300, 400)})
 
 
 if __name__ == '__main__':

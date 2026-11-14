@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import threading
+import random
 import time
 import logging
 from collections import defaultdict, deque
@@ -11,10 +12,10 @@ from pynput import keyboard
 from pynput.mouse import Button, Controller, Listener as MouseListener
 
 from .config import AppConfig
-from .models import KeyConfig, key_config_from_dict
+from .models import KeyConfig, key_config_from_dict, clamp_click_interval
 from .profile_store import DEFAULT_PROFILE, load_profiles
 from .sequence_runner import SequenceRunner
-from .sequences import SequenceGroup, grouped_macro_ids, sequence_groups_from_list
+from .sequences import SequenceGroup, grouped_macro_ids, sequence_groups_from_list, flatten_groups
 from .workers import KeyClickerWorker
 
 LOGGER = logging.getLogger(__name__)
@@ -59,6 +60,7 @@ class RandomizedAutoClicker:
         self.key_configs: list[KeyConfig] = []
         self.key_workers: list[KeyClickerWorker] = []
         self.sequence_groups: list[SequenceGroup] = []
+        self._group_workers: dict[str, KeyClickerWorker] = {}
 
         self.enabled_event = threading.Event()
         self.stop_event = threading.Event()
@@ -82,9 +84,8 @@ class RandomizedAutoClicker:
         self._pixel_capture_down: tuple[int, int] | None = None
         self.sequence_state_callback: SequenceStateCallback | None = None
         self.sequence_runner = SequenceRunner(
-            activate_macro=self._activate_macro_by_id,
-            persist=self._request_persist,
-            refresh=self._request_refresh,
+            execute_macro=self.execute_group_step,
+            macro_delay=self.macro_delay,
             state_changed=self._publish_sequence_state,
             log=self.log,
         )
@@ -172,6 +173,11 @@ class RandomizedAutoClicker:
         with self.state_lock:
             previous = self.manual_enabled
             self.manual_enabled = active
+            if previous != active:
+                self.pixel_capture_callback = None
+                self.pixel_capture_cancel_callback = None
+                self._pixel_capture_down = None
+                self.capturing_callback = None
             if active:
                 if not previous:
                     grouped_ids = grouped_macro_ids(self.sequence_groups)
@@ -225,8 +231,6 @@ class RandomizedAutoClicker:
                 was_active = config.enabled
                 config.enabled = active
             changed = was_active != active
-        if changed and active and trigger_sequence:
-            self.sequence_runner.trigger_for_macro(config.id_token)
         return changed
 
     def is_config_enabled(self, config: KeyConfig) -> bool:
@@ -235,6 +239,24 @@ class RandomizedAutoClicker:
 
     def start_sequence(self, group_id: str) -> bool:
         return self.sequence_runner.start_group(group_id)
+
+    def execute_group_step(self, macro_id: str, cancel: threading.Event) -> bool:
+        worker = self._group_workers.get(macro_id)
+        if worker is None or not worker.config.enabled or cancel.is_set() or not self.is_running:
+            return False
+        with self.state_lock:
+            self._runtime_enabled[macro_id] = True
+        try:
+            return worker.press_once(cancel)
+        finally:
+            with self.state_lock:
+                self._runtime_enabled[macro_id] = False
+
+    def macro_delay(self, macro_id: str) -> float:
+        for config in self.key_configs:
+            if config.id_token == macro_id:
+                return clamp_click_interval(config.key, config.interval_seconds) + random.uniform(0.0, config.random_seconds)
+        return 0.0
 
     def _activate_macro_by_id(self, macro_id: str) -> bool:
         for config in self.key_configs:
@@ -267,11 +289,14 @@ class RandomizedAutoClicker:
         restart: bool = True,
     ) -> None:
         if sequence_groups is not None:
-            self.sequence_groups = sequence_groups
+            self.sequence_groups = flatten_groups(sequence_groups)
             self.sequence_runner.configure(sequence_groups)
         self.update_key_workers(configs, force_restart=restart)
 
     def _stop_workers(self) -> bool:
+        for worker in self._group_workers.values():
+            worker.stop()
+        self._group_workers.clear()
         workers = list(self.key_workers)
         for worker in workers:
             worker.stop()
@@ -297,7 +322,7 @@ class RandomizedAutoClicker:
     ) -> None:
         with self.worker_lock:
             self.key_configs = list(configs)
-            if not force_restart and self.key_workers:
+            if not force_restart and (self.key_workers or self._group_workers):
                 return
 
             if not self._stop_workers():
@@ -306,12 +331,15 @@ class RandomizedAutoClicker:
             if self.stop_event.is_set():
                 return
 
-            self.key_workers = [
-                KeyClickerWorker(config, self.keyboard, self)
-                for config in self.key_configs
-            ]
-            for worker in self.key_workers:
-                worker.start()
+            grouped = grouped_macro_ids(self.sequence_groups)
+            self.key_workers = []
+            for config in self.key_configs:
+                worker = KeyClickerWorker(config, self.keyboard, self)
+                if config.id_token in grouped:
+                    self._group_workers[config.id_token] = worker
+                else:
+                    self.key_workers.append(worker)
+                    worker.start()
 
     def stop(self) -> None:
         if self.stop_event.is_set():
@@ -336,7 +364,7 @@ class RandomizedAutoClicker:
             return True
         if pressed and self._consume_injected_input("mouse", button_name):
             return True
-        if button == Button.left and self.pixel_capture_callback is not None:
+        if button == Button.left and self.pixel_capture_callback is not None and not self.is_running:
             if pressed:
                 self._pixel_capture_down = (x, y)
             elif self._pixel_capture_down is not None:
@@ -348,7 +376,7 @@ class RandomizedAutoClicker:
             return True
         if not pressed:
             return True
-        if self.capturing_callback is not None:
+        if self.capturing_callback is not None and not self.is_running:
             self.capturing_callback(button_name)
             return True
         if button != Button.middle:
@@ -368,13 +396,13 @@ class RandomizedAutoClicker:
             return
         if self._consume_injected_input("key", key_name):
             return
-        if self.pixel_capture_callback is not None and key_name == "esc":
+        if self.pixel_capture_callback is not None and key_name == "esc" and not self.is_running:
             self.pixel_capture_callback = None
             self._pixel_capture_down = None
             if self.pixel_capture_cancel_callback is not None:
                 self.pixel_capture_cancel_callback()
             return
-        if self.capturing_callback is not None:
+        if self.capturing_callback is not None and not self.is_running:
             self.capturing_callback(key_name)
             return
         if key_name != self.app_config.panic_key.strip().lower():

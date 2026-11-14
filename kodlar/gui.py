@@ -25,11 +25,11 @@ from .models import (
     key_config_to_dict,
     new_id,
 )
-from .platform_win import flush_desktop, get_pixel_color_win32, screen_bounds, foreground_is_ours, foreground_description
+from .platform_win import flush_desktop, get_pixel_color_win32, screen_bounds, foreground_is_ours, foreground_description, physical_cursor_position
 from .profile_store import load_profiles, reset_profiles, save_profiles
 from .sequences import (
-    MAX_GROUP_DEPTH,
     SequenceGroup,
+    flatten_groups,
     SequenceItem,
     group_macro_ids,
     grouped_macro_ids,
@@ -37,7 +37,7 @@ from .sequences import (
     sequence_group_to_dict,
     sequence_groups_from_list,
 )
-from .ui_widgets import DEFAULT_THEME, ScrollableFrame
+from .ui_widgets import DEFAULT_THEME, ScrollableFrame, PointMarker
 
 
 PIXEL_PICK_OFFSET = 8
@@ -71,6 +71,12 @@ class ClickerApp:
         self._locked_menu_states = {}
         self._capture_overlay = None
         self._pending_pixel_pick = None
+        self._pending_click_pick = None
+        self._preview_job = None
+        self._selection_preview = None
+        self._preview_kind = None
+        self._preview_config = None
+        self._preview_swatch = None
         
         theme = DEFAULT_THEME
         self.bg_color = theme.background
@@ -277,8 +283,6 @@ class ClickerApp:
         self._queue_job = self.root.after(100, self.process_queue)
         self.root.bind_all("<Button-1>", self.unfocus_entries)
         self.update_running_ui(self.clicker.enabled_event.is_set())
-        self.root.bind("<FocusIn>", lambda event: self.root.after_idle(self.draw_markers) if event.widget is self.root else None)
-        self.root.bind("<FocusOut>", lambda event: self.root.after(50, self.draw_markers) if event.widget is self.root else None)
         install = Path(__file__).resolve().parent.parent
         if os.name == "nt" and not (install / ".git").exists():
             threading.Thread(target=self.check_for_update, name="update-check", daemon=True).start()
@@ -334,7 +338,7 @@ class ClickerApp:
             self.enqueue_log(f"Güncelleme kontrolü tamamlanamadı: {error}")
 
     def apply_pending_update(self) -> None:
-        if self._update_stage is None or self.clicker.is_running or self.capturing_target is not None or self._pending_pixel_pick is not None:
+        if self._update_stage is None or self.clicker.is_running or self.capturing_target is not None or self._pending_pixel_pick is not None or self._pending_click_pick is not None:
             return
         stage = self._update_stage
         self._update_stage = None
@@ -463,65 +467,101 @@ class ClickerApp:
     def draw_markers(self):
         if self._shutting_down:
             return
-        # Eski işaretçileri sil
-        for m in self.markers.values():
-            try:
-                m.destroy()
-            except Exception:
-                pass
-        self.markers = {}
-        
-        # Editing markers must never cover the game while macros are running.
-        if self.clicker.is_running or self._pending_pixel_pick is not None or not foreground_is_ours():
-            return
-
-        trans_color = "#000001"
-        
-        # 1. Normal tuşların işaretçileri
+        desired = {}
         for config in self.key_configs:
-            # Ekran İzleme Göstergesi (Halka - Gül Kırmızısı) - SÜRÜKLENEBİLİR
-            if config.screen_mode and config.has_pixel_target:
-                marker = tk.Toplevel(self.root)
-                marker.overrideredirect(True)
-                marker.attributes("-topmost", True)
-                marker.attributes("-transparentcolor", trans_color)
-                marker.geometry(f"100x40+{config.pixel_x-50}+{config.pixel_y-28}")
-                marker.configure(bg=trans_color)
-                
-                canvas = tk.Canvas(marker, width=100, height=40, bg=trans_color, highlightthickness=0)
-                canvas.pack()
-                
-                label_text = f"İzle: {config.key.upper()}"
-                canvas.create_text(50, 8, text=label_text, fill="#f43f5e", font=("Segoe UI", 7, "bold"))
-                canvas.create_oval(42, 20, 58, 36, outline="#f43f5e", width=2)
-                
-                canvas.bind("<Button-1>", lambda event, mw=marker: self.on_marker_press(mw, event))
-                canvas.bind("<B1-Motion>", lambda event, mw=marker, c=config: self.on_marker_drag(mw, event, c, "screen"))
-                canvas.bind("<ButtonRelease-1>", lambda event, mw=marker, c=config: self.on_screen_marker_release(mw, c))
-                
-                self.markers[f"screen_{id(config)}"] = marker
-                
-            # Fare Tıklama Koordinat Göstergesi (Halka - Mavi) - SÜRÜKLENEBİLİR
-            is_mouse = config.key.lower() in ("sol klik", "left click", "sol tık", "sağ klik", "sag klik", "right click", "sağ tık", "orta klik", "middle click", "orta tık")
-            if is_mouse and config.has_click_target:
-                marker = tk.Toplevel(self.root)
-                marker.overrideredirect(True)
-                marker.attributes("-topmost", True)
-                marker.attributes("-transparentcolor", trans_color)
-                marker.geometry(f"100x40+{config.click_x-50}+{config.click_y-28}")
-                marker.configure(bg=trans_color)
-                
-                canvas = tk.Canvas(marker, width=100, height=40, bg=trans_color, highlightthickness=0)
-                canvas.pack()
-                
-                label_text = f"Tıkla: {config.key.upper()}"
-                canvas.create_text(50, 8, text=label_text, fill="#3b82f6", font=("Segoe UI", 7, "bold"))
-                canvas.create_oval(42, 20, 58, 36, outline="#3b82f6", width=2)
-                
-                canvas.bind("<Button-1>", lambda event, mw=marker: self.on_marker_press(mw, event))
-                canvas.bind("<B1-Motion>", lambda event, mw=marker, c=config: self.on_marker_drag(mw, event, c, "click"))
-                
-                self.markers[f"click_{id(config)}"] = marker
+            if config.has_pixel_target:
+                desired[f"screen_{id(config)}"] = (config.pixel_x, config.pixel_y, "#f43f5e")
+            if config.key.strip().lower() in {"sol klik", "left click", "sol tık", "sağ klik", "sag klik", "right click", "sağ tık", "orta klik", "middle click", "orta tık", "mouse x1", "mouse x2", "x1", "x2"} and config.has_click_target:
+                desired[f"click_{id(config)}"] = (config.click_x, config.click_y, "#3b82f6")
+        self._marker_target_points = [(x, y) for x, y, _color in desired.values()]
+        for token in list(self.markers):
+            if token not in desired:
+                self.markers.pop(token).destroy()
+        for token, (x, y, color) in desired.items():
+            marker = self.markers.get(token)
+            if marker is None or not marker.winfo_exists():
+                try:
+                    self.markers[token] = PointMarker(self.root, x, y, color, protected_points=self._marker_target_points)
+                except (OSError, tk.TclError) as error:
+                    self.clicker.log_activity("marker-error", f"İşaretçi gösterilemedi: {error}")
+            elif marker.point != (x, y):
+                marker.move(x, y)
+        self.protect_marker_pixels()
+
+    def protect_marker_pixels(self, extra=()):
+        points = list(getattr(self, "_marker_target_points", [marker.point for marker in self.markers.values()]))
+        points.extend(extra)
+        preview = getattr(self, "_selection_preview", None)
+        if preview is not None and preview.winfo_exists():
+            points.append(preview.point)
+        for marker in self.markers.values():
+            marker.protect(points)
+        if preview is not None and preview.winfo_exists():
+            preview.protect(points)
+
+    def begin_point_preview(self, kind, config):
+        self._preview_kind = kind
+        self._selection_clicked_point = None
+        self._preview_failed = False
+        self._preview_config = config
+        widgets = self.config_widgets.get(id(config), {})
+        self._preview_swatch = widgets.get("color_preview")
+        self._preview_job = self.root.after(0, self.update_point_preview)
+
+    def update_point_preview(self):
+        self._preview_job = None
+        if self._shutting_down or self.clicker.is_running or self._preview_kind is None:
+            return
+        point = getattr(self, "_selection_clicked_point", None)
+        held = self.clicker._pixel_capture_down
+        if point is None and isinstance(held, tuple) and len(held) == 2:
+            point = held
+        if point is None:
+            point = physical_cursor_position()
+        if point is None and os.name != "nt":
+            point = self.root.winfo_pointerxy()
+        if point is not None:
+            x, y = point
+            if self._preview_kind == "screen":
+                x, y = x - PIXEL_PICK_OFFSET, y - PIXEL_PICK_OFFSET
+            color = "#f43f5e" if self._preview_kind == "screen" else "#3b82f6"
+            if self._selection_preview is None and not self._preview_failed:
+                try:
+                    self._selection_preview = PointMarker(self.root, x, y, color, protected_points=getattr(self, "_marker_target_points", ()))
+                except (OSError, tk.TclError) as error:
+                    self._preview_failed = True
+                    self.clicker.log_activity("preview-error", f"Nokta önizlemesi gösterilemedi: {error}")
+            elif self._selection_preview is not None and self._selection_preview.point != (x, y):
+                self._selection_preview.move(x, y)
+            self.protect_marker_pixels(extra=((x, y),))
+            self.root.update_idletasks()
+            flush_desktop()
+            sampled = get_pixel_color_win32(x, y)
+            if sampled:
+                if self._selection_preview is not None:
+                    self._selection_preview.set_color(sampled)
+                if self._preview_swatch is not None and self._preview_swatch.winfo_exists():
+                    self._preview_swatch.configure(bg=sampled)
+        self._preview_job = self.root.after(20, self.update_point_preview)
+
+    def stop_point_preview(self):
+        job = getattr(self, "_preview_job", None)
+        if job is not None:
+            self.root.after_cancel(job)
+        self._preview_job = None
+        preview = getattr(self, "_selection_preview", None)
+        if preview is not None and preview.winfo_exists():
+            preview.destroy()
+        self._selection_preview = None
+        swatch = getattr(self, "_preview_swatch", None)
+        config = getattr(self, "_preview_config", None)
+        if swatch is not None and swatch.winfo_exists() and config is not None:
+            swatch.configure(bg=config.target_color or self.input_bg)
+        self._preview_swatch = None
+        self._preview_config = None
+        self._preview_kind = None
+        self._selection_clicked_point = None
+        self.protect_marker_pixels()
 
     @editable_only
     def toggle_topmost(self):
@@ -594,10 +634,24 @@ class ClickerApp:
                     self.update_group_states()
                 elif msg_type == "capture":
                     self.handle_captured_key(data)
+                elif msg_type == "click_pick_cancel":
+                    if self._pending_click_pick is data:
+                        self.cancel_pixel_pick()
+                elif msg_type == "click_pick_result":
+                    pending, x, y = data
+                    if self._pending_click_pick is pending:
+                        self.cancel_pixel_pick()
+                        config, button, label = pending
+                        if not self.clicker.is_running and any(config is item for item in self.key_configs):
+                            self.log_queue.put(("click_capture", (config, x, y, button, label)))
                 elif msg_type == "pixel_pick_cancel":
                     if self._pending_pixel_pick is data:
                         self.cancel_pixel_pick()
                         self.draw_markers()
+                elif msg_type == "pixel_pick_point":
+                    pending, x, y = data
+                    if self._pending_pixel_pick is pending and not self.clicker.is_running:
+                        self.sample_picked_pixel(pending, x, y)
                 elif msg_type == "pixel_pick_result":
                     pending, x, y, color, bounds = data
                     if self._pending_pixel_pick is pending:
@@ -790,6 +844,7 @@ class ClickerApp:
 
     @editable_only
     def on_profile_changed(self, event=None):
+        self.cancel_pixel_pick()
         self.save_current_configs_to_profiles(update_workers=False)
         new_profile = self.profile_var.get().strip()
         if new_profile in self.profiles_data["profiles"]:
@@ -820,6 +875,7 @@ class ClickerApp:
             if len(name) > 40:
                 messagebox.showerror("Hata", "Profil ismi en fazla 40 karakter olabilir.")
             elif name and duplicate is None:
+                self.cancel_pixel_pick()
                 self.profiles_data["profiles"][name] = []
                 self.profiles_data.setdefault("groups", {})[name] = []
                 
@@ -846,6 +902,7 @@ class ClickerApp:
             return
         if self.clicker.is_running:
             return
+        self.cancel_pixel_pick()
         self.clicker.set_enabled(False)
         if self._marker_save_job is not None:
             self.root.after_cancel(self._marker_save_job)
@@ -875,6 +932,7 @@ class ClickerApp:
             return
             
         if messagebox.askyesno("Onay", f"'{self.active_profile}' profilini silmek istiyor musunuz?") and not self.clicker.is_running:
+            self.cancel_pixel_pick()
             del self.profiles_data["profiles"][self.active_profile]
             self.profiles_data.get("groups", {}).pop(self.active_profile, None)
                 
@@ -988,7 +1046,7 @@ class ClickerApp:
             key="sol klik",
             interval_seconds=1.0,
             random_seconds=0.010,
-            enabled=False,
+            enabled=True,
             id_token=new_id(),
         )
         self.key_configs.append(config)
@@ -996,33 +1054,10 @@ class ClickerApp:
             SequenceItem(
                 kind="macro",
                 macro_id=config.id_token,
-                delay_seconds=0.0 if not group.children else 1.0,
             )
         )
         self.save_current_configs_to_profiles(
             update_workers=True,
-            update_sequences=True,
-        )
-        self.refresh_keys_list_ui()
-
-    @editable_only
-    def add_nested_group(self, parent: SequenceGroup, depth: int) -> None:
-        if depth + 1 >= MAX_GROUP_DEPTH:
-            messagebox.showinfo(
-                "Grup Sınırı",
-                f"Gruplar en fazla {MAX_GROUP_DEPTH} kat iç içe olabilir.",
-            )
-            return
-        nested = SequenceGroup(name=f"Alt Grup {len(parent.children) + 1}")
-        parent.children.append(
-            SequenceItem(
-                kind="group",
-                group=nested,
-                delay_seconds=0.0 if not parent.children else 1.0,
-            )
-        )
-        self.save_current_configs_to_profiles(
-            update_workers=False,
             update_sequences=True,
         )
         self.refresh_keys_list_ui()
@@ -1033,20 +1068,6 @@ class ClickerApp:
         group.name = name
         entry.delete(0, tk.END)
         entry.insert(0, name)
-        self.save_current_configs_to_profiles(update_workers=False)
-
-    @editable_only
-    def save_group_delay(self, item: SequenceItem, entry: tk.Entry) -> None:
-        try:
-            value = round(float(entry.get().strip().replace(",", ".")), 3)
-            if value < 0:
-                raise ValueError
-        except ValueError:
-            value = item.delay_seconds
-            self.clicker.log("Grup bekleme süresi negatif veya geçersiz olamaz.")
-        item.delay_seconds = value
-        entry.delete(0, tk.END)
-        entry.insert(0, f"{value:.3f}")
         self.save_current_configs_to_profiles(update_workers=False)
 
     @editable_only
@@ -1123,10 +1144,8 @@ class ClickerApp:
         self,
         group: SequenceGroup,
         parent: tk.Misc,
-        *,
-        depth: int,
     ) -> None:
-        border_color = self.accent_color if depth == 0 else self.success_color
+        border_color = self.accent_color
         outer = tk.Frame(
             parent,
             bg=border_color,
@@ -1204,70 +1223,14 @@ class ClickerApp:
         )
         add_key_button.pack(side="right")
 
-        add_group_button = tk.Button(
-            controls,
-            text="+ Grup",
-            bg=self.input_bg,
-            fg=self.text_primary,
-            activebackground=self.border_color,
-            activeforeground="white",
-            bd=0,
-            font=("Segoe UI", 7, "bold"),
-            padx=6,
-            pady=3,
-            state="normal" if depth + 1 < MAX_GROUP_DEPTH else "disabled",
-            command=lambda g=group, d=depth: self.add_nested_group(g, d),
-        )
-        add_group_button.pack(side="right", padx=(0, 4))
-
         children_frame = tk.Frame(card, bg=self.card_color)
         children_frame.pack(fill="x")
 
-        for index, item in enumerate(group.children):
-            if index > 0:
-                delay_row = tk.Frame(children_frame, bg=self.card_color)
-                delay_row.pack(fill="x", pady=2)
-                tk.Label(
-                    delay_row,
-                    text="↓",
-                    bg=self.card_color,
-                    fg=self.text_secondary,
-                    font=("Segoe UI", 8, "bold"),
-                ).pack(side="left")
-                delay_entry = self.create_modern_entry(delay_row, width=6)
-                delay_entry.frame.pack(side="left", padx=4)
-                delay_entry.insert(0, f"{item.delay_seconds:.3f}")
-                delay_entry._saved_value = lambda i=item: f"{i.delay_seconds:.3f}"
-                delay_entry.bind(
-                    "<FocusOut>",
-                    lambda _event, sequence_item=item, entry=delay_entry:
-                        self.save_group_delay(sequence_item, entry),
-                )
-                delay_entry.bind(
-                    "<Return>",
-                    lambda _event, sequence_item=item, entry=delay_entry: (
-                        self.save_group_delay(sequence_item, entry),
-                        self.root.focus_set(),
-                    ),
-                )
-                tk.Label(
-                    delay_row,
-                    text="sn",
-                    bg=self.card_color,
-                    fg=self.text_secondary,
-                    font=("Segoe UI", 8),
-                ).pack(side="left")
-
+        for item in group.children:
             if item.kind == "macro":
                 config = self._find_config(item.macro_id)
                 if config is not None:
                     self.draw_card_row(config, parent=children_frame)
-            elif item.kind == "group" and item.group is not None:
-                self.draw_sequence_group(
-                    item.group,
-                    children_frame,
-                    depth=depth + 1,
-                )
 
         self.group_widgets[group.id_token] = {
             "outer": outer,
@@ -1289,6 +1252,7 @@ class ClickerApp:
                     fg=self.success_color if active else self.accent_color,
                 )
     def refresh_keys_list_ui(self):
+        self.sequence_groups = flatten_groups(self.sequence_groups)
         for widget in self.list_container.scrollable_frame.winfo_children():
             widget.destroy()
 
@@ -1304,7 +1268,6 @@ class ClickerApp:
                 self.draw_sequence_group(
                     group,
                     self.list_container.scrollable_frame,
-                    depth=0,
                 )
 
         assigned_ids = grouped_macro_ids(self.sequence_groups)
@@ -1418,7 +1381,7 @@ class ClickerApp:
         coord_lbl.pack(side="left", padx=(10, 5))
         
         color_preview = tk.Canvas(
-            screen_frame, width=12, height=12,
+            row1, width=12, height=12,
             bg=config.target_color if config.target_color else self.input_bg,
             highlightthickness=1, highlightbackground=self.border_color
         )
@@ -1488,6 +1451,11 @@ class ClickerApp:
     def cancel_pixel_pick(self) -> None:
         pending = self._pending_pixel_pick
         self._pending_pixel_pick = None
+        click_pending = getattr(self, "_pending_click_pick", None)
+        self._pending_click_pick = None
+        if click_pending is not None and click_pending[1].winfo_exists():
+            click_pending[1].configure(text="Konum Seç", bg=self.input_bg, fg=self.text_primary)
+        self.stop_point_preview()
         self.clicker.pixel_capture_callback = None
         self.clicker.pixel_capture_cancel_callback = None
         self.clicker._pixel_capture_down = None
@@ -1511,22 +1479,35 @@ class ClickerApp:
         self._capture_overlay = None
         pending = (config, button, coord_lbl, color_preview)
         self._pending_pixel_pick = pending
-        for marker in self.markers.values():
-            marker.withdraw()
         button.configure(text="Tıklayın...", bg=self.accent_color, fg="white")
         self.arm_pixel_click(pending)
+        self.begin_point_preview("screen", config)
         self.clicker.log("İzlenecek noktaya tıklayın; tıklamanın 8 piksel solu ve üstü okunacak. ESC: iptal.")
 
     def arm_pixel_click(self, pending) -> None:
+        if self._pending_pixel_pick is not pending or self.clicker.is_running:
+            return
         self.clicker.pixel_capture_callback = lambda x, y: self.on_pixel_pick_click(x, y, pending)
         self.clicker.pixel_capture_cancel_callback = lambda: self.log_queue.put(("pixel_pick_cancel", pending))
 
     def on_pixel_pick_click(self, click_x: int, click_y: int, pending) -> None:
-        # The global mouse hook supplies physical coordinates. No overlay or F8.
         if foreground_is_ours():
-            self.arm_pixel_click(pending)  # Ignore the picker button's own click.
+            self.arm_pixel_click(pending)
             return
-        x, y = click_x - PIXEL_PICK_OFFSET, click_y - PIXEL_PICK_OFFSET
+        self._selection_clicked_point = (click_x, click_y)
+        self.log_queue.put(("pixel_pick_point", (
+            pending, click_x - PIXEL_PICK_OFFSET, click_y - PIXEL_PICK_OFFSET,
+        )))
+
+    def sample_picked_pixel(self, pending, x, y):
+        # Hide the moving preview before confirming, including if the mouse moved
+        # between preview frames. Persistent markers also expose this exact pixel.
+        preview = getattr(self, "_selection_preview", None)
+        if preview is not None and preview.winfo_exists():
+            preview.withdraw()
+        self.protect_marker_pixels(extra=((x, y),))
+        self.root.update_idletasks()
+        flush_desktop()
         bounds, color = None, ""
         try:
             self.enqueue_log(f"Piksel seçim ortamı: {foreground_description()}")
@@ -1574,42 +1555,24 @@ class ClickerApp:
     @editable_only
     def start_click_capture(self, config: KeyConfig, button: tk.Button, loc_lbl: tk.Label):
         self.cancel_pixel_pick()
+        pending = (config, button, loc_lbl)
+        self._pending_click_pick = pending
         button.configure(text="Tıklayın...", bg=self.accent_color, fg="white")
-        
-        overlay = tk.Toplevel(self.root)
-        self._capture_overlay = overlay
-        overlay.overrideredirect(True)
-        overlay.attributes("-topmost", True)
-        
-        screen_w = self.root.winfo_screenwidth()
-        screen_h = self.root.winfo_screenheight()
-        overlay.geometry(f"{screen_w}x{screen_h}+0+0")
-        
-        overlay.attributes("-alpha", 0.01)
-        overlay.configure(cursor="crosshair")
-        
-        overlay.bind("<Button-1>", lambda event: self.on_click_overlay_clicked(event, overlay, config, button, loc_lbl))
-        overlay.bind("<Escape>", lambda event: self.cancel_click_overlay_capture(overlay, button))
+        self.arm_click_target(pending)
+        self.begin_point_preview("click", config)
 
-    @editable_only
-    def on_click_overlay_clicked(self, event, overlay, config, button, loc_lbl):
-        overlay._click_count = getattr(overlay, "_click_count", 0) + 1
-        x = event.x_root
-        y = event.y_root
-        
-        if overlay._click_count == 1:
-            button.configure(text="Tekrar Tıkla...")
-            self.clicker.log("Odaklanma algılandı. Lütfen tıklanacak konumu seçmek için tekrar tıklayın...")
-            
-            self.focus_through_overlay(overlay, x, y)
-        else:
-            overlay.destroy()
-            self.log_queue.put(("click_capture", (config, x, y, button, loc_lbl)))
+    def arm_click_target(self, pending):
+        if self._pending_click_pick is not pending or self.clicker.is_running:
+            return
+        self.clicker.pixel_capture_callback = lambda x, y: self.on_click_target_picked(x, y, pending)
+        self.clicker.pixel_capture_cancel_callback = lambda: self.log_queue.put(("click_pick_cancel", pending))
 
-    def cancel_click_overlay_capture(self, overlay, button):
-        overlay.destroy()
-        button.configure(text="Konum Seç", bg=self.input_bg, fg=self.text_primary)
-        self.clicker.log("Tıklama konumu seçimi iptal edildi.")
+    def on_click_target_picked(self, x, y, pending):
+        if foreground_is_ours():
+            self.arm_click_target(pending)
+            return
+        self._selection_clicked_point = (x, y)
+        self.log_queue.put(("click_pick_result", (pending, x, y)))
 
     @editable_only
     def reset_click_coordinate(self, config: KeyConfig, loc_lbl: tk.Label):
@@ -1701,6 +1664,8 @@ class ClickerApp:
 
     @editable_only
     def delete_key_config(self, config: KeyConfig):
+        if getattr(self, "_preview_config", None) is config:
+            self.cancel_pixel_pick()
         cfg_id = id(config)
         if cfg_id in self.config_widgets:
             self.config_widgets[cfg_id]["screen_frame"].pack_forget()

@@ -61,6 +61,7 @@ class PhysicalCaptureTests(unittest.TestCase):
         app.clicker = Mock(is_running=False)
         app._pending_pixel_pick = None
         app.markers = {}
+        app.config_widgets = {}
         app.input_bg, app.text_primary, app.accent_color = '#000000', '#ffffff', '#0000ff'
         app.root = Mock()
         app.log_queue = queue.Queue()
@@ -72,6 +73,9 @@ class PhysicalCaptureTests(unittest.TestCase):
                 with patch('kodlar.gui.screen_bounds', return_value=(0, 0, 1920, 1080)):
                     with patch('kodlar.gui.get_pixel_color_win32', return_value='#123456') as read:
                         app.clicker.pixel_capture_callback(960, 540)
+                        kind, data = app.log_queue.get_nowait()
+                        self.assertEqual(kind, 'pixel_pick_point')
+                        app.sample_picked_pixel(*data)
                         read.assert_called_once_with(952, 532)
             overlay.assert_not_called()
         kind, data = app.log_queue.get_nowait()
@@ -111,6 +115,18 @@ class PhysicalCaptureTests(unittest.TestCase):
         worker._run_screen_mode(pixels)
         pixels.get.assert_called_once_with(952, 532)
         worker.press_key.assert_not_called()
+
+    def test_markers_are_click_through_non_activating_and_excluded_from_capture(self):
+        user32 = Mock()
+        user32.GetAncestor.return_value = 123
+        flags = 0x00080000 | 0x20 | 0x08000000 | 0x80
+        user32.GetWindowLongPtrW.side_effect = [0, flags]
+        with patch.object(platform_win, 'os', SimpleNamespace(name='nt')):
+            with patch.object(platform_win, '_user32', user32, create=True):
+                self.assertEqual(platform_win.make_overlay_passive(99), 123)
+        self.assertEqual(user32.SetWindowLongPtrW.call_args.args, (123, -20, flags))
+        user32.SetWindowDisplayAffinity.assert_called_once_with(123, 0x11)
+        user32.SetForegroundWindow.assert_not_called()
 
     def test_click_capture_waits_for_release_and_is_one_shot(self):
         with patch('kodlar.engine.Controller'), patch('kodlar.engine.keyboard.Controller'):

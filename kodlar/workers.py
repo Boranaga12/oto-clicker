@@ -217,6 +217,13 @@ class KeyClickerWorker(StoppableWorker):
                 return False
         return False
 
+    def report_pixel(self, color, target, bounds):
+        status = "eşleşiyor" if color and is_color_close(color, target[2], threshold=MONITOR_COLOR_TOLERANCE) else "farklı" if color else "okunamadı"
+        self.clicker.log_activity(
+            self.config.id_token + ":pixel",
+            f"İzleme {self.config.key.upper()} [{self.config.id_token[:6]}] ({target[0]}, {target[1]}): referans={target[2]}, okunan={color or 'yok'}, {status}; tolerans={MONITOR_COLOR_TOLERANCE}; ekran={bounds}; {foreground_description()}",
+        )
+
     def _run_screen_mode(self, pixels: PixelSampler) -> None:
         # Repeat while the condition holds; never queue presses after recovery.
         last_report = None
@@ -234,11 +241,7 @@ class KeyClickerWorker(StoppableWorker):
             color = pixels.get(target[0], target[1])
             report = (target, color, bounds)
             if report != last_report:
-                status = "eşleşiyor" if color and is_color_close(color, target[2], threshold=MONITOR_COLOR_TOLERANCE) else "farklı" if color else "okunamadı"
-                self.clicker.log_activity(
-                    self.config.id_token + ":pixel",
-                    f"İzleme {self.config.key.upper()} [{self.config.id_token[:6]}] ({target[0]}, {target[1]}): referans={target[2]}, okunan={color or 'yok'}, {status}; tolerans={MONITOR_COLOR_TOLERANCE}; ekran={bounds}; {foreground_description()}",
-                )
+                self.report_pixel(color, target, bounds)
                 last_report = report
             if not color:
                 self.wait(0.1)
@@ -268,6 +271,33 @@ class KeyClickerWorker(StoppableWorker):
             ):
                 if self.press_key(before_press=lambda: not color_returned()):
                     self.execute_chain_actions()
+
+    def press_once(self, cancel: threading.Event) -> bool:
+        """A group owns this worker and executes a single step synchronously."""
+        def allowed():
+            return not cancel.is_set() and self._can_run()
+        if not allowed():
+            return False
+        if self.config.screen_mode:
+            if not self.config.has_pixel_target:
+                return False
+            target = (self.config.pixel_x, self.config.pixel_y, self.config.target_color, self.config.pixel_screen_bounds)
+            with PixelSampler() as pixels:
+                def changed():
+                    if not allowed() or target != (self.config.pixel_x, self.config.pixel_y, self.config.target_color, self.config.pixel_screen_bounds):
+                        return False
+                    bounds = screen_bounds()
+                    if target[3] is not None and bounds is not None and target[3] != bounds:
+                        return False
+                    current = pixels.get(target[0], target[1])
+                    self.report_pixel(current, target, bounds)
+                    return bool(current and not is_color_close(current, target[2], threshold=MONITOR_COLOR_TOLERANCE))
+                sent = self.press_key(before_press=changed)
+        else:
+            sent = self.press_key(before_press=allowed)
+        if sent and allowed():
+            self.execute_chain_actions()
+        return sent
 
     def run(self) -> None:
         if self.wait(random.uniform(0.05, 0.2)):

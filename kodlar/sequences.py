@@ -102,11 +102,11 @@ def sequence_group_to_dict(group: SequenceGroup) -> dict[str, Any]:
 def sequence_groups_from_list(data: Any) -> list[SequenceGroup]:
     if not isinstance(data, list):
         return []
-    return [
+    return flatten_groups([
         sequence_group_from_dict(item)
         for item in data
         if isinstance(item, Mapping)
-    ]
+    ])
 
 
 def iter_groups(groups: list[SequenceGroup]):
@@ -133,3 +133,27 @@ def grouped_macro_ids(groups: list[SequenceGroup]) -> set[str]:
 
 def group_macro_ids(group: SequenceGroup) -> set[str]:
     return grouped_macro_ids([group])
+
+
+def flatten_groups(groups: list[SequenceGroup]) -> list[SequenceGroup]:
+    """Migrate legacy nested groups in order and assign each macro to one group."""
+    seen_macros: set[str] = set()
+    seen_groups: set[str] = set()
+    for group in groups:
+        if group.id_token in seen_groups:
+            group.id_token = new_id()
+        seen_groups.add(group.id_token)
+        flat = []
+        stack = list(reversed(group.children))
+        visited_groups = {id(group)}
+        while stack:
+            item = stack.pop()
+            if item.kind == 'group' and item.group is not None:
+                if id(item.group) not in visited_groups:
+                    visited_groups.add(id(item.group))
+                    stack.extend(reversed(item.group.children))
+            elif item.kind == 'macro' and item.macro_id and item.macro_id not in seen_macros:
+                seen_macros.add(item.macro_id)
+                flat.append(SequenceItem(kind='macro', macro_id=item.macro_id, delay_seconds=0))
+        group.children = flat
+    return groups

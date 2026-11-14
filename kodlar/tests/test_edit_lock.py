@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import gc
 import tempfile
 import tkinter as tk
 import unittest
@@ -45,6 +46,10 @@ class EditLockTests(unittest.TestCase):
         self.app.shutdown()
         self.engine.stop()
         self.root.destroy()
+        # Repeated Tk interpreters in this test process must be collected on the
+        # UI thread, before a later sequence thread can trigger cyclic GC.
+        self.app = self.engine = self.root = None
+        gc.collect()
 
     def process_queue_now(self):
         if self.app._queue_job is not None:
@@ -127,6 +132,78 @@ class EditLockTests(unittest.TestCase):
         self.app.end_log_selection(None)
         self.assertIn('new log during selection', text.get('1.0', 'end'))
         self.assertEqual(str(text.cget('state')), 'disabled')
+
+    def test_live_pixel_preview_changes_point_and_swatch_without_saving_reference(self):
+        self.config.target_color = '#123456'
+        self.app.refresh_keys_list_ui()
+        self.app.save_current_configs_to_profiles()
+        original_file = (data_directory() / 'profiles.json').read_bytes()
+        original = deepcopy(self.config)
+        widgets = self.app.config_widgets[id(self.config)]
+        with patch('kodlar.gui.physical_cursor_position', return_value=(600, 400)) as pointer:
+            with patch('kodlar.gui.get_pixel_color_win32', return_value='#abcdef') as read:
+                self.app.start_pixel_capture(self.config, widgets['pixel_btn'], widgets['coord_lbl'], widgets['color_preview'])
+                self.root.update()
+                preview = self.app._selection_preview
+                self.assertEqual(preview.point, (592, 392))
+                self.assertEqual(preview.color, '#abcdef')
+                self.assertEqual(widgets['color_preview'].cget('bg'), '#abcdef')
+                pointer.return_value = (640, 430)
+                read.return_value = '#ff2200'
+                self.root.after_cancel(self.app._preview_job)
+                self.app.update_point_preview()
+                self.assertEqual(preview.point, (632, 422))
+                self.assertEqual(preview.color, '#ff2200')
+                self.assertEqual(self.config, original)
+                self.assertEqual((data_directory() / 'profiles.json').read_bytes(), original_file)
+                self.app.cancel_pixel_pick()
+                self.assertFalse(preview.winfo_exists())
+                self.assertEqual(widgets['color_preview'].cget('bg'), '#123456')
+                self.assertIsNone(self.app._preview_job)
+
+    def test_click_target_preview_is_exact_and_does_not_replace_watch_reference(self):
+        self.config.key = 'sol klik'
+        self.config.target_color = '#112233'
+        self.app.refresh_keys_list_ui()
+        widgets = self.app.config_widgets[id(self.config)]
+        with patch('kodlar.gui.physical_cursor_position', return_value=(600, 400)):
+            with patch('kodlar.gui.get_pixel_color_win32', return_value='#bb9900'):
+                self.app.start_click_capture(self.config, widgets['loc_btn'], widgets['loc_lbl'])
+                self.root.update()
+                self.assertEqual(self.app._selection_preview.point, (600, 400))
+                self.assertEqual(widgets['color_preview'].cget('bg'), '#bb9900')
+                with patch('kodlar.gui.foreground_is_ours', return_value=False):
+                    self.engine.on_mouse_click(600, 400, Button.left, True)
+                    self.engine.on_mouse_click(600, 400, Button.left, False)
+                    self.process_queue_now()
+        self.assertEqual((self.config.click_x, self.config.click_y), (600, 400))
+        self.assertEqual(self.config.target_color, '#112233')
+        self.assertEqual(widgets['color_preview'].cget('bg'), '#112233')
+        self.assertIsNone(self.app._selection_preview)
+
+    def test_marker_centers_and_nearby_sample_points_stay_transparent(self):
+        from kodlar.ui_widgets import PointMarker
+        marker = PointMarker(self.root, 300, 300, '#ff0000', protected_points=((300, 300), (304, 300)))
+        try:
+            rectangles = [marker.canvas.coords(item) for item in marker.canvas.find_all()
+                          if marker.canvas.type(item) == 'rectangle' and marker.canvas.itemcget(item, 'fill') == PointMarker.TRANSPARENT]
+            for x, y in ((4, 4), (8, 4)):
+                self.assertTrue(any(left <= x < right and top <= y < bottom for left, top, right, bottom in rectangles))
+        finally:
+            marker.destroy()
+
+    def test_saved_markers_remain_visible_when_running(self):
+        self.config.key = 'sol klik'
+        self.config.target_color = '#123456'
+        self.config.pixel_x, self.config.pixel_y = 300, 300
+        self.config.click_x, self.config.click_y = 400, 300
+        self.app.refresh_keys_list_ui()
+        self.root.update()
+        markers = list(self.app.markers.values())
+        self.assertEqual(len(markers), 2)
+        self.start()
+        self.assertTrue(all(marker.winfo_viewable() for marker in markers))
+        self.assertEqual(set(self.app.markers.values()), set(markers))
 
     def test_click_captures_offset_game_point_and_display_mode(self):
         widgets = self.app.config_widgets[id(self.config)]

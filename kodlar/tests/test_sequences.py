@@ -3,168 +3,118 @@ from __future__ import annotations
 import threading
 import time
 import unittest
+from unittest.mock import Mock, patch
 
 from kodlar.sequence_runner import SequenceRunner
-from kodlar.sequences import (
-    SequenceGroup,
-    SequenceItem,
-    sequence_group_from_dict,
-    sequence_group_to_dict,
-)
+from kodlar.sequences import SequenceGroup, SequenceItem, sequence_group_to_dict, sequence_groups_from_list
 
 
 class SequenceTests(unittest.TestCase):
-    def test_group_round_trip_preserves_nested_order(self) -> None:
-        nested = SequenceGroup(
-            name="İç Grup",
-            children=[SequenceItem(kind="macro", macro_id="b")],
-        )
-        source = SequenceGroup(
-            name="Ana Grup",
-            children=[
-                SequenceItem(kind="macro", macro_id="a", delay_seconds=0),
-                SequenceItem(kind="group", group=nested, delay_seconds=1.25),
-            ],
-        )
-        restored = sequence_group_from_dict(sequence_group_to_dict(source))
-        self.assertEqual(restored.name, "Ana Grup")
-        self.assertEqual(restored.children[0].macro_id, "a")
-        self.assertEqual(restored.children[1].delay_seconds, 1.25)
-        self.assertEqual(restored.children[1].group.name, "İç Grup")
+    def runner(self, execute, delay=lambda _macro_id: 0.01):
+        return SequenceRunner(execute, delay, lambda *_args: None, lambda _message: None)
 
-    def test_first_macro_activation_starts_remaining_members(self) -> None:
-        activated: list[str] = []
+    def test_legacy_nested_groups_flatten_in_order_without_duplicate_macros(self):
+        nested = SequenceGroup(children=[SequenceItem('macro', macro_id='b'), SequenceItem('macro', macro_id='a')])
+        source = SequenceGroup(name='Ana', children=[SequenceItem('macro', macro_id='a'), SequenceItem('group', group=nested), SequenceItem('macro', macro_id='c')])
+        groups = sequence_groups_from_list([sequence_group_to_dict(source)])
+        self.assertEqual([item.macro_id for item in groups[0].children], ['a', 'b', 'c'])
+        self.assertTrue(all(item.kind == 'macro' for item in groups[0].children))
+
+    def test_same_macro_cannot_run_in_two_groups(self):
+        source = [{'name': 'A', 'children': [{'kind': 'macro', 'macro_id': 'a'}]},
+                  {'name': 'B', 'children': [{'kind': 'macro', 'macro_id': 'a'}, {'kind': 'macro', 'macro_id': 'b'}]}]
+        groups = sequence_groups_from_list(source)
+        self.assertEqual([[item.macro_id for item in group.children] for group in groups], [['a'], ['b']])
+
+    def test_group_repeats_in_order_and_never_overlaps_its_steps(self):
+        calls = []
         finished = threading.Event()
-        group = SequenceGroup(
-            name="Sıra",
-            children=[
-                SequenceItem(kind="macro", macro_id="first", delay_seconds=0),
-                SequenceItem(kind="macro", macro_id="second", delay_seconds=0.01),
-                SequenceItem(kind="macro", macro_id="third", delay_seconds=0.01),
-            ],
-        )
-        runner = SequenceRunner(
-            activate_macro=lambda macro_id: activated.append(macro_id) is None,
-            persist=lambda: None,
-            refresh=lambda: None,
-            state_changed=lambda _group_id, active: finished.set() if not active else None,
-            log=lambda _message: None,
-        )
+        active = []
+        def execute(macro_id, _stop):
+            active.append(macro_id)
+            self.assertEqual(len(active), 1)
+            calls.append(macro_id)
+            active.pop()
+            if len(calls) == 4:
+                finished.set()
+            return True
+        runner = self.runner(execute, lambda _id: 0.02)
+        group = SequenceGroup(children=[SequenceItem('macro', macro_id='a'), SequenceItem('macro', macro_id='b')])
         runner.configure([group])
-        runner.trigger_for_macro("first")
-        self.assertTrue(finished.wait(1.0))
-        self.assertEqual(activated, ["second", "third"])
+        self.assertTrue(runner.start_group(group.id_token))
+        self.assertFalse(runner.start_group(group.id_token))
+        self.assertTrue(finished.wait(1))
         runner.stop()
+        self.assertEqual(calls[:4], ['a', 'b', 'a', 'b'])
 
-    def test_nested_group_completes_before_next_sibling(self) -> None:
-        activated: list[str] = []
-        finished = threading.Event()
-        nested = SequenceGroup(
-            name="İç",
-            children=[
-                SequenceItem(kind="macro", macro_id="nested-1"),
-                SequenceItem(kind="macro", macro_id="nested-2", delay_seconds=0.01),
-            ],
-        )
-        root = SequenceGroup(
-            name="Ana",
-            children=[
-                SequenceItem(kind="macro", macro_id="root-1"),
-                SequenceItem(kind="group", group=nested, delay_seconds=0.01),
-                SequenceItem(kind="macro", macro_id="root-2", delay_seconds=0.01),
-            ],
-        )
-        runner = SequenceRunner(
-            activate_macro=lambda macro_id: activated.append(macro_id) is None,
-            persist=lambda: None,
-            refresh=lambda: None,
-            state_changed=lambda group_id, active: (
-                finished.set() if group_id == root.id_token and not active else None
-            ),
-            log=lambda _message: None,
-        )
-        runner.configure([root])
-        self.assertTrue(runner.start_group(root.id_token))
-        self.assertTrue(finished.wait(1.0))
-        self.assertEqual(
-            activated,
-            ["root-1", "nested-1", "nested-2", "root-2"],
-        )
-        runner.stop()
+    def test_automatic_delays_replace_legacy_manual_transition_values(self):
+        calls, waits = [], []
+        class Stop:
+            done = False
+            def is_set(self): return self.done
+            def wait(self, seconds):
+                waits.append(seconds)
+                self.done = len(waits) == 3
+                return self.done
+        group = SequenceGroup(children=[SequenceItem('macro', macro_id='a', delay_seconds=999), SequenceItem('macro', macro_id='b', delay_seconds=888)])
+        runner = self.runner(lambda key, _stop: calls.append(key) or True, lambda key: {'a': 0.2, 'b': 0.4}[key])
+        with patch('kodlar.sequence_runner.time.monotonic', return_value=0):
+            runner._run(group, Stop())
+        self.assertEqual(calls, ['a', 'b', 'a'])
+        self.assertEqual(waits, [0.2, 0.4, 0.2])
 
-    def test_nested_first_member_continues_parent_after_nested_finishes(self) -> None:
-        activated: list[str] = []
-        finished = threading.Event()
-        nested = SequenceGroup(
-            name="İç",
-            children=[
-                SequenceItem(kind="macro", macro_id="nested-1"),
-                SequenceItem(kind="macro", macro_id="nested-2", delay_seconds=0.01),
-            ],
-        )
-        root = SequenceGroup(
-            name="Ana",
-            children=[
-                SequenceItem(kind="group", group=nested),
-                SequenceItem(kind="macro", macro_id="root-2", delay_seconds=0.01),
-            ],
-        )
-        runner = SequenceRunner(
-            activate_macro=lambda macro_id: activated.append(macro_id) is None,
-            persist=lambda: None,
-            refresh=lambda: None,
-            state_changed=lambda group_id, active: (
-                finished.set() if group_id == root.id_token and not active else None
-            ),
-            log=lambda _message: None,
-        )
-        runner.configure([root])
-        runner.trigger_for_macro("nested-1")
-        self.assertTrue(finished.wait(1.0))
-        self.assertEqual(activated, ["nested-2", "root-2"])
-        runner.stop()
+    def test_time_spent_pressing_is_not_added_as_extra_transition_delay(self):
+        clock, waits = [0.0], []
+        class Stop:
+            done = False
+            def is_set(self): return self.done
+            def wait(self, seconds):
+                waits.append(seconds)
+                self.done = True
+                return True
+        def execute(_key, _stop):
+            clock[0] += 0.08
+            return True
+        group = SequenceGroup(children=[SequenceItem('macro', macro_id='a')])
+        runner = self.runner(execute, lambda _id: 0.1)
+        with patch('kodlar.sequence_runner.time.monotonic', side_effect=lambda: clock[0]):
+            runner._run(group, Stop())
+        self.assertAlmostEqual(waits[0], 0.02)
 
-    def test_stopping_group_interrupts_long_delay(self) -> None:
-        activated: list[str] = []
-        group = SequenceGroup(
-            children=[
-                SequenceItem(kind="macro", macro_id="first"),
-                SequenceItem(kind="macro", macro_id="second", delay_seconds=5.0),
-            ]
-        )
-        runner = SequenceRunner(
-            activate_macro=lambda macro_id: activated.append(macro_id) is None,
-            persist=lambda: None,
-            refresh=lambda: None,
-            state_changed=lambda _group_id, _active: None,
-            log=lambda _message: None,
-        )
+    def test_stop_interrupts_a_long_automatic_delay_and_allows_restart(self):
+        calls = []
+        fired = threading.Event()
+        def execute(key, _stop):
+            calls.append(key)
+            fired.set()
+            return True
+        runner = self.runner(execute, lambda _id: 5.0)
+        group = SequenceGroup(children=[SequenceItem('macro', macro_id='a'), SequenceItem('macro', macro_id='b')])
         runner.configure([group])
         runner.start_group(group.id_token)
-        time.sleep(0.02)
-        runner.stop()
-        self.assertEqual(activated, ["first"])
-
-    def test_cancel_allows_group_to_be_started_again(self) -> None:
-        activated: list[str] = []
-        finished = threading.Event()
-        group = SequenceGroup(
-            children=[SequenceItem(kind="macro", macro_id="first")]
-        )
-        runner = SequenceRunner(
-            activate_macro=lambda macro_id: activated.append(macro_id) is None,
-            persist=lambda: None,
-            refresh=lambda: None,
-            state_changed=lambda _group_id, active: finished.set() if not active else None,
-            log=lambda _message: None,
-        )
-        runner.configure([group])
+        self.assertTrue(fired.wait(1))
+        before = time.monotonic()
         runner.cancel()
+        self.assertLess(time.monotonic() - before, 0.5)
+        self.assertEqual(calls, ['a'])
+        fired.clear()
         self.assertTrue(runner.start_group(group.id_token))
-        self.assertTrue(finished.wait(1.0))
-        self.assertEqual(activated, ["first"])
+        self.assertTrue(fired.wait(1))
         runner.stop()
+        self.assertEqual(calls, ['a', 'a'])
+
+    def test_matching_or_disabled_steps_do_not_busy_loop(self):
+        execute = Mock(return_value=False)
+        delay = Mock(return_value=1)
+        runner = self.runner(execute, delay)
+        group = SequenceGroup(children=[SequenceItem('macro', macro_id='a')])
+        runner.configure([group])
+        runner.start_group(group.id_token)
+        time.sleep(0.12)
+        runner.stop()
+        self.assertLess(execute.call_count, 6)
+        delay.assert_not_called()
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     unittest.main()

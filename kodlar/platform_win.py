@@ -189,3 +189,44 @@ def foreground_description() -> str:
     except AttributeError:
         pass
     return f"pencere={title.value}, alan={area}, DPI={dpi}"
+
+
+def physical_cursor_position() -> tuple[int, int] | None:
+    if os.name != "nt":
+        return None
+    point = wintypes.POINT()
+    reader = getattr(_user32, "GetPhysicalCursorPos", _user32.GetCursorPos)
+    reader.argtypes = [ctypes.POINTER(wintypes.POINT)]
+    reader.restype = wintypes.BOOL
+    return (point.x, point.y) if reader(ctypes.byref(point)) else None
+
+
+def make_overlay_passive(window_id: int) -> int | None:
+    """Layered overlays pass clicks through and never activate above the game."""
+    if os.name != "nt":
+        return None
+    _user32.GetAncestor.argtypes = [ctypes.c_void_p, wintypes.UINT]
+    _user32.GetAncestor.restype = ctypes.c_void_p
+    handle = _user32.GetAncestor(window_id, 2) or window_id
+    getter = getattr(_user32, "GetWindowLongPtrW", None) or _user32.GetWindowLongW
+    setter = getattr(_user32, "SetWindowLongPtrW", None) or _user32.SetWindowLongW
+    getter.argtypes, getter.restype = [ctypes.c_void_p, ctypes.c_int], ctypes.c_ssize_t
+    setter.argtypes, setter.restype = [ctypes.c_void_p, ctypes.c_int, ctypes.c_ssize_t], ctypes.c_ssize_t
+    style = getter(handle, -20)
+    # WS_EX_LAYERED | WS_EX_TRANSPARENT | WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW
+    required = 0x00080000 | 0x20 | 0x08000000 | 0x80
+    setter(handle, -20, style | required)
+    if getter(handle, -20) & required != required:
+        raise OSError("İşaretçi tıklama geçirgenliği uygulanamadı")
+    try:
+        _user32.SetWindowDisplayAffinity.argtypes = [ctypes.c_void_p, wintypes.DWORD]
+        _user32.SetWindowDisplayAffinity(handle, 0x11)  # WDA_EXCLUDEFROMCAPTURE, Windows 10+
+    except (AttributeError, OSError):
+        pass
+    return handle
+
+
+def move_overlay(handle: int, x: int, y: int, size: int) -> None:
+    _user32.SetWindowPos.argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_int, ctypes.c_int, ctypes.c_int, ctypes.c_int, wintypes.UINT]
+    if not _user32.SetWindowPos(handle, ctypes.c_void_p(-1), x, y, size, size, 0x0010):
+        raise OSError("İşaretçi konumlandırılamadı")

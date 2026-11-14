@@ -31,7 +31,7 @@ tuşu sistemi başlatıp durdurur.
 - Global başlatma/durdurma kısayolu
 - Arayüzden tek tıkla başlatma/durdurma
 - Yan fare tuşları (X1/X2) desteği
-- Süreli, sıralı ve iç içe çalışma grupları
+- Otomatik zamanlamalı, düz ve sıralı çalışma grupları
 - Atomik profil ve ayar kaydı
 - Kurulum klasöründen bağımsız `%APPDATA%\ArikMakro` profil saklama
 - Önceki LocalAppData ve taşınabilir sürümlerden otomatik profil göçü
@@ -39,13 +39,21 @@ tuşu sistemi başlatıp durdurur.
 
 ## Sıralı gruplar
 
-1. `Yeni Grup Ekle` ile bir grup oluşturun.
-2. Grup üzerindeki `İçine Tuş` ve `İçine Grup` düğmeleriyle adımları ekleyin.
-3. Adımlar arasındaki `sn bekle` alanına geçiş süresini yazın.
-4. Ana `BAŞLAT` düğmesine basın; tüm ana gruplar otomatik başlar.
+1. `+ Grup` ile bir ana grup oluşturun.
+2. Grubun `+ Tuş` düğmesiyle adımları ekleyin. Gruba grup eklenmez.
+3. Çalışacak tuşların `Aktif` kutusunu açın, aralık ve rastgele gecikmesini ayarlayın.
+4. Ana `BAŞLAT` tüm grupları başlatır. Her grup kendi içinde sırayla döner.
 
-Adımlar yukarıdan aşağıya etkinleşir. Alt grup tek bir adım gibi çalışır ve
-kendi içindeki sıra tamamlandıktan sonra ana grup bir sonraki adıma geçer.
+Bir grupta bir anda yalnızca bir adım yürütülür. Tuş bir kez basılır ve bırakılır;
+sonraki adımın zamanı önceki tuşun aralığı + 0 ile rastgelelik sınırı arasında
+seçilen gecikmedir. Tuşa basmak için geçen süre bu süreden düşülür. Ayrı geçiş
+süresi yoktur. Son adımın ardından sıra başa döner. Pasif tuşlar ve rengi eşleşen
+izleme adımları basılmadan atlanır. Grup tuşları bağımsız tekrar iş parçacıkları
+başlatmaz. Durdur, beklemeyi iptal eder; kalan adımlar çalıştırılmaz.
+
+Eski iç içe grupların tuşları ana grubun içine, aynı sıra korunarak taşınır.
+Aynı kayıtlı tuş birden fazla grupta yer alıyorsa ilk gruptaki üyelik kullanılır.
+Kayıtlı Aktif ayarları başlatma/durdurma sırasında değiştirilmez.
 
 ## Mimari
 
@@ -54,7 +62,7 @@ kendi içindeki sıra tamamlandıktan sonra ana grup bir sonraki adıma geçer.
 - `ui_widgets.py`: tema ve tekrar kullanılabilir arayüz bileşenleri
 - `engine.py`: global giriş dinleyicileri ve worker yönetimi
 - `workers.py`: klavye, fare ve piksel izleme worker'ları
-- `sequences.py`: iç içe grup veri modeli ve profil serileştirme
+- `sequences.py`: düz grup modeli, eski alt grupları dönüştürme ve profil serileştirme
 - `sequence_runner.py`: iptal edilebilir sıralı grup yürütücüsü
 - `models.py`: veri modelleri, doğrulama ve eski profil dönüşümü
 - `profile_store.py`: güvenli JSON okuma/yazma
@@ -135,7 +143,8 @@ Kaydedilen koordinat referans alınır; izleme sırasında ikinci bir kaydırma 
 Her RGB kanalında 8 değer tolerans kullanılır. Bu sınır aşılırsa tuş tekrarlanır;
 renk tolerans içine döndüğünde bekleyen basış
 iptal edilir. Basıştan hemen önce de kontrol yapılır. Okunamayan piksel tetiklemez.
-İzleme işaretçisi sürüklenirse yeni renk sürükleme bittiğinde alınır.
+Seçili izleme noktaları pembe, tıklama noktaları mavi küçük işaretçilerle gösterilir.
+Noktayı değiştirmek için seçim düğmesini yeniden kullanın.
 
 ## Çalışırken ayar kilidi
 
@@ -171,3 +180,19 @@ dalgalanmaları aynı renk sayar; tanı kaydında kullanılan tolerans da göste
 Kayıtlar normal metin gibi fareyle sürüklenip seçilebilir ve Ctrl+C ile kopyalanır.
 Seçilen metin değişmesin diye görünür kayıt akışı seçim sırasında bekletilir;
 seçim temizlenince devam eder. Dosya günlüğü bu sırada kayda devam eder.
+
+## Noktalar ve canlı önizleme
+
+Seçili izleme ve sabit tıklama noktaları sistem çalışırken de görünür kalır.
+Windows işaretçileri tıklamayı geçirir ve odağı almaz; merkezleri saydamdır.
+Örneklenen diğer noktaların üstüne gelen işaretçi kısımları da saydam bırakılır.
+
+`Piksel Seç` veya `Konum Seç` beklerken küçük bir nokta imleci takip eder.
+İzlemede bu nokta imlecin 8 piksel solu ve üstü, tıklama hedefinde tam imleç
+konumudur. Noktanın rengi ve tuş kartındaki renk kutusu o piksele göre canlı
+olarak güncellenir. Tıklamadan önce kayıtlı referans veya profil değiştirilmez.
+ESC ile iptal edilince referans renk kutusuna geri gelir. İzleme seçimi sadece
+izleme referansını, konum seçimi sadece fare hedefini değiştirir.
+
+Özel tam ekran oyunların harici Windows işaretçilerini gösterme davranışı oyuna
+bağlıdır; KAROS üzerinde görünürlük bu ortamda doğrulanmamıştır.
