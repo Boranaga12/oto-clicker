@@ -141,7 +141,8 @@ class EditLockTests(unittest.TestCase):
         original = deepcopy(self.config)
         widgets = self.app.config_widgets[id(self.config)]
         with patch('kodlar.gui.physical_cursor_position', return_value=(600, 400)) as pointer:
-            with patch('kodlar.gui.get_pixel_color_win32', return_value='#abcdef') as read:
+            with patch('kodlar.gui.get_pixel_color_win32', return_value='#abcdef') as read, \
+                 patch('kodlar.gui.SelectionMagnifier.show_point', side_effect=lambda *_: read.return_value):
                 self.app.start_pixel_capture(self.config, widgets['pixel_btn'], widgets['coord_lbl'], widgets['color_preview'])
                 self.root.update()
                 preview = self.app._selection_preview
@@ -167,7 +168,8 @@ class EditLockTests(unittest.TestCase):
         self.app.refresh_keys_list_ui()
         widgets = self.app.config_widgets[id(self.config)]
         with patch('kodlar.gui.physical_cursor_position', return_value=(600, 400)):
-            with patch('kodlar.gui.get_pixel_color_win32', return_value='#bb9900'):
+            with patch('kodlar.gui.get_pixel_color_win32', return_value='#bb9900'), \
+                 patch('kodlar.gui.SelectionMagnifier.show_point', return_value='#bb9900'):
                 self.app.start_click_capture(self.config, widgets['loc_btn'], widgets['loc_lbl'])
                 self.root.update()
                 self.assertEqual(self.app._selection_preview.point, (600, 400))
