@@ -1,0 +1,2 @@
+[console_scripts]
+arik-makro = kodlar.main:main

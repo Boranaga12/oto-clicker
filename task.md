@@ -1,0 +1,80 @@
+- [x] Rename `src/` to `kodlar/`
+- [x] Move configuration files from root to `kodlar/`
+- [x] Implement simplified `kodlar/config.py` with panic key settings
+- [x] Implement modular `kodlar/clicker.py` with unified mouse/key press workers and toggle hotkeys
+- [x] Design unified single-page Tkinter panel in `kodlar/gui.py` with Comboboxes and Panic Key configuration
+- [x] Clean up `kodlar/main.py` entry point
+- [x] Update root-level silent launcher `start.pyw`
+- [x] Delete root-level configuration, batch, and documentation files to keep the root directory perfectly clean
+- [x] Verify execution and compilation of source code
+- [x] Update walkthrough.md inside `kodlar/`
+- [x] Implement profile management (Kayıtlı Klavyeler)
+- [x] Implement inline key configurator cards
+- [x] Implement physical key/mouse capturing for hotkey assignments
+- [x] Lock window size to 360x640 fixed mobile layout
+- [x] Fix double row addition bug in "Yeni Tuş Ekle"
+- [x] Fix row deletion "Sil" button functionality
+- [x] Restructure top header layout with status badge (BASLAT button disabled)
+- [x] Rename panic key configuration to "Sistemi Başlat/Durdur"
+- [x] Restrict key clicker executions and hotkey triggers based on master system state
+- [x] Rename launcher to `baslat.pyw` and add bytecode generation prevention settings
+- [x] Remove root-level `__pycache__` folder
+- [x] Optimize rendering loops to redraw only added/removed rows, preventing full UI redraws
+- [x] Bind keyboard shortcut status toggles directly to checkbox variables to bypass list redrawing
+- [x] Implement the "Her Zaman Üstte" (Always on Top) GUI float checkbox option
+- [x] Rebrand "Antigravity" to "Arık Makro" across files, window titles, and logs
+- [x] Replace all pseudo-Turkish/English transliterated characters in GUI labels, logs, and alerts with proper Turkish spelling
+- [x] Set newly created keys defaults to 1.00s interval and 0.00s randomness
+- [x] Remove individual start/stop hotkeys from rows and engine
+- [x] Remove "Kaydet" buttons and bind auto-saving on FocusOut / Return keypresses for entries
+- [x] Allow toggling active key checkboxes when system is stopped (Sistem Kapalı)
+- [x] Preserve checked/unchecked states on master system stop (no auto-deactivation)
+- [x] Default new keys to checked (active) on creation
+- [x] Implement real-time character level float digit input validation on Entries
+- [x] Update empty list screen message to reference the "Yeni Tuş Ekle" button
+- [x] Auto-format input numbers on FocusOut/Return to 2 decimal places (e.g., `1` -> `1.00`)
+- [x] Implement global click-outside to unfocus Entries
+- [x] Bind Enter keys on Entries to drop typing focus
+- [x] Add "Temizle" (Clear) button to the console logs section
+- [x] Replace `baslat.pyw` with a native `baslat.bat` batch script to silently auto-install Python/pynput if missing on startup
+- [x] Fix system start worker update bug (workers now start immediately on activation)
+- [x] Add Pillow dependencies to setup batch and requirements
+- [x] Add Screen Mode checkbox and collapsible configuration frame to macro rows
+- [x] Add screen pixel mouse capture callback handling coordinates and colors
+- [x] Add custom DirectX style scancode pixel-color trigger matching loop to the worker thread
+- [x] Add transparent red dot overlay markers centered on targeted coordinates
+- [x] Replace global mouse click hook with full-screen transparent crosshair overlay capture
+- [x] Implement high-DPI scaling awareness in main.py to align physical and logical coordinate systems
+- [x] Replace Pillow ImageGrab loops with Win32 GDI ctypes GetPixel calls (0% CPU screen monitoring)
+- [x] Remove Pillow dependency from requirements.txt and baslat.bat setup scripts
+- [x] Add click coordinates capture for mouse macros (click_x, click_y)
+- [x] Implement click-teleport-back physical mouse click simulation
+- [x] Add collapsible Row 5 mouse coordinate config frames to macro rows
+- [x] Render hollow transparent overlay circles with center alignments and bold text labels
+- [x] Color-code overlays (Rose Red for monitoring, Accent Blue for click targets)
+- [x] Implement Eylem Zinciri (Action Chaining) UI with collapsible Row 6 config frames
+- [x] Support Aktif Et chain action (remote checkbox/thread enabling)
+- [x] Support Diğerlerini Sustur chain action (temporal mutex-like thread pause for X seconds)
+- [x] Add id_token profiling strings to handle identical macros in dropdown selections
+- [x] Configure vertical-only window resizing (width locked to 360px, min-height 200px)
+- [x] Replace all ttk.Combobox widgets with custom-styled, topmost-compatible tk.OptionMenu dropdowns
+- [x] Rename "Ekran" UI checkbox label to "İzleme"
+- [x] Refactor Eylem Zinciri to support multiple concurrent actions per key config
+- [x] Add list migration code for old single action chain configurations
+- [x] Render dynamic sub-list UI inside card action_frame with + Eylem Ekle and Sil controls
+- [x] Fix duration entry box formatting in actions sub-list
+- [x] Implement targeted muting ("Tümü" or target macro row filter dropdown)
+- [x] Optimize profile updates to avoid thread recreation lag (prevent thread freezing)
+- [x] Bind scrolling view bounds to auto-update on additions and deletions
+- [x] Keep Aktif Et action toggle button
+- [x] Restrict actions to left/right mouse click macros in GUI
+- [x] Implement global muting of non-mouse click macros during muting window
+- [x] Implement Renk Değiştiğinde checkbutton and background color change monitoring thread with 20s cooldowns
+- [x] Remove action chain frame from normal macro cards in GUI
+- [x] Bind mouse dragging events to coordinate overlays for movable target configuration
+- [x] Implement edge-triggered single trigger firing for Inverted screen monitoring mode
+- [x] Make edge-triggered inverted mode default and remove Ters checkbox from GUI
+- [x] Fix key re-assignment thread recreation update delay bug
+- [x] Implement live cancel countdown monitoring for absent color click triggers
+- [x] Implement RGB distance color proximity tolerance matching (tolerance bounds ±25)
+- [x] Implement double click window focusing mechanics on screen capture overlays

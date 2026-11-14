@@ -1,0 +1,11 @@
+.venv/
+__pycache__/
+*.py[cod]
+*.log
+*.log.*
+*.bak
+*.tmp
+*.corrupt-*.json
+.pytest_cache/
+.ruff_cache/
+

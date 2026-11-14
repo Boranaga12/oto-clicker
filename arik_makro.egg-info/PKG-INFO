@@ -1,0 +1,74 @@
+Metadata-Version: 2.4
+Name: arik-makro
+Version: 2.0.0
+Summary: Windows için profilli ve piksel izlemeli masaüstü makro uygulaması
+Requires-Python: >=3.10
+Description-Content-Type: text/markdown
+Requires-Dist: pynput<2.0,>=1.7.6
+
+# Arık Makro
+
+Windows için profilli, global kısayollu ve piksel izlemeli masaüstü makro
+uygulaması.
+
+## Çalıştırma
+
+Proje kökündeki `baslat.bat` dosyasına çift tıklayın. Başlatıcı uygun Python
+kurulumunu seçer, eksik bağımlılıkları yükler ve uygulamayı konsolsuz açar.
+
+Terminalden çalıştırmak için:
+
+```powershell
+py -3 -m pip install -r requirements.txt
+py -3 -m kodlar.main
+```
+
+Sistem ilk açılışta pasiftir. `settings.ini` içindeki kısayol veya orta fare
+tuşu sistemi başlatıp durdurur.
+
+## Özellikler
+
+- Birden çok makro profili
+- Klavye ve fare tetikleme
+- Sabit fare hedefi seçimi
+- Piksel rengi değiştiğinde tek seferlik tetikleme
+- Rastgele ek gecikme
+- Global başlatma/durdurma kısayolu
+- Arayüzden tek tıkla başlatma/durdurma
+- Yan fare tuşları (X1/X2) desteği
+- Atomik profil ve ayar kaydı
+- Dönen `app.log` hata kayıtları
+
+## Mimari
+
+- `main.py`: uygulama yaşam döngüsü ve hata kaydı
+- `gui.py`: Tkinter arayüzü
+- `ui_widgets.py`: tema ve tekrar kullanılabilir arayüz bileşenleri
+- `engine.py`: global giriş dinleyicileri ve worker yönetimi
+- `workers.py`: klavye, fare ve piksel izleme worker'ları
+- `models.py`: veri modelleri, doğrulama ve eski profil dönüşümü
+- `profile_store.py`: güvenli JSON okuma/yazma
+- `platform_win.py`: DPI ve Win32 piksel erişimi
+- `config.py`: uygulama ayarları
+- `clicker.py`: eski içe aktarımlar için uyumluluk katmanı
+
+## Testler
+
+Proje kökünde şu komutu çalıştırın:
+
+```powershell
+py -3 -m unittest discover -s kodlar/tests -v
+```
+
+Geliştirme kurulumu için isteğe bağlı olarak:
+
+```powershell
+py -3 -m pip install -e .
+arik-makro
+```
+
+## Sorun giderme
+
+Uygulama açılmazsa `app.log` dosyasını kontrol edin. Bazı oyunlar sentetik
+girişleri engelleyebilir; bu durumda uygulama ile hedef programın yetki
+seviyelerinin aynı olması gerekir.
