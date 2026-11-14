@@ -145,3 +145,12 @@ def save_profiles(data: dict[str, Any], path: Path | None = None) -> None:
                     Path(temp_name).unlink(missing_ok=True)
                 except OSError:
                     pass
+
+
+def reset_profiles(path: Path | None = None) -> dict[str, Any]:
+    """Clear profiles and their recovery backup so deleted macros cannot return."""
+    data = default_profiles()
+    with _LOCK:
+        save_profiles(data, path)
+        save_profiles(data, path)
+    return data

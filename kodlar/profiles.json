@@ -1,89 +1,9 @@
 {
-  "active_profile": "mc",
+  "active_profile": "Varsayılan",
   "profiles": {
-    "Varsayılan": [
-      {
-        "key": "tab",
-        "interval_seconds": 10.0,
-        "random_seconds": 0.5,
-        "enabled": true,
-        "screen_mode": false,
-        "pixel_x": 623,
-        "pixel_y": 88,
-        "target_color": "#575e5a",
-        "invert_color": false,
-        "click_x": -1,
-        "click_y": -1,
-        "id_token": "1784380189.6082995_0.7586096602162111",
-        "action_chain": false,
-        "actions": []
-      },
-      {
-        "key": "\"",
-        "interval_seconds": 0.3,
-        "random_seconds": 0.3,
-        "enabled": true,
-        "screen_mode": false,
-        "pixel_x": 0,
-        "pixel_y": 0,
-        "target_color": "",
-        "invert_color": false,
-        "click_x": -1,
-        "click_y": -1,
-        "id_token": "1784380195.7290816_0.7670663436461513",
-        "action_chain": false,
-        "actions": []
-      },
-      {
-        "key": "sol klik",
-        "interval_seconds": 1.0,
-        "random_seconds": 0.0,
-        "enabled": true,
-        "screen_mode": false,
-        "pixel_x": 0,
-        "pixel_y": 0,
-        "target_color": "",
-        "invert_color": false,
-        "click_x": -1,
-        "click_y": -1,
-        "id_token": "1784380582.8317964_0.23299558071529036",
-        "action_chain": false,
-        "actions": []
-      }
-    ],
-    "mc": [
-      {
-        "key": "sol klik",
-        "interval_seconds": 0.01,
-        "random_seconds": 0.0,
-        "enabled": false,
-        "screen_mode": false,
-        "pixel_x": 0,
-        "pixel_y": 0,
-        "target_color": "",
-        "invert_color": false,
-        "click_x": 1293,
-        "click_y": 934,
-        "id_token": "5d1d2f164fcb4e4899ab303eda1ef4cf",
-        "action_chain": false,
-        "actions": []
-      },
-      {
-        "key": "sağ klik",
-        "interval_seconds": 0.01,
-        "random_seconds": 0.0,
-        "enabled": true,
-        "screen_mode": false,
-        "pixel_x": 0,
-        "pixel_y": 0,
-        "target_color": "",
-        "invert_color": false,
-        "click_x": -1,
-        "click_y": -1,
-        "id_token": "1bcf2879010740a5b71eacb346c86e5d",
-        "action_chain": false,
-        "actions": []
-      }
-    ]
+    "Varsayılan": []
+  },
+  "groups": {
+    "Varsayılan": []
   }
 }

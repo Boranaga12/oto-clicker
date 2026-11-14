@@ -122,6 +122,9 @@ class KeyClickerWorker(StoppableWorker):
                                 self.wait(random.uniform(0.06, 0.08))
                             finally:
                                 self.clicker.mouse.release(mouse_button)
+                            # Frame-polled UI buttons must see button-up at the target
+                            # before the cursor is restored to the user's position.
+                            self.wait(0.05)
                         finally:
                             self.clicker.mouse.position = original
                     else:

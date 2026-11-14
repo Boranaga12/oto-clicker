@@ -79,3 +79,10 @@ arik-makro
 Uygulama açılmazsa `app.log` dosyasını kontrol edin. Bazı oyunlar sentetik
 girişleri engelleyebilir; bu durumda uygulama ile hedef programın yetki
 seviyelerinin aynı olması gerekir.
+
+## Profilleri temizleme
+
+Dağıtım boş bir Varsayılan profiliyle gelir. Daha önce bilgisayara kaydedilmiş
+profilleri, grupları ve atamaları silmek için profil satırındaki `Sıfırla`
+düğmesini kullanın. Onaydan sonra makrolar durur ve başlat/durdur kısayolu
+ESC olur. Profil kurtarma yedeği de boşaltılır.

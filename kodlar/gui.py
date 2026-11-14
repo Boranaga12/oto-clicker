@@ -7,7 +7,7 @@ from tkinter import messagebox, simpledialog
 
 from pynput.mouse import Button
 
-from .config import save_config
+from .config import AppConfig, save_config
 from .engine import RandomizedAutoClicker
 from .models import (
     KeyConfig,
@@ -16,7 +16,7 @@ from .models import (
     new_id,
 )
 from .platform_win import get_pixel_color_win32
-from .profile_store import load_profiles, save_profiles
+from .profile_store import load_profiles, reset_profiles, save_profiles
 from .sequences import (
     MAX_GROUP_DEPTH,
     SequenceGroup,
@@ -162,6 +162,13 @@ class ClickerApp:
         )
         self.new_prof_btn.pack(side="right", padx=2)
         
+        tk.Button(
+            self.profile_frame, text="Sıfırla", font=("Segoe UI", 8),
+            bg=self.input_bg, fg=self.text_secondary, bd=0,
+            activebackground=self.border_color, activeforeground="white",
+            padx=8, pady=2, command=self.reset_all_profiles,
+        ).pack(side="right", padx=2)
+
         # 3. Tuş Atama Listesi (Card Panel)
         self.list_header = tk.Frame(self.root, bg=self.bg_color, padx=10)
         self.list_header.pack(side="top", fill="x")
@@ -628,6 +635,36 @@ class ClickerApp:
                 self.refresh_keys_list_ui()
             elif duplicate is not None:
                 messagebox.showerror("Hata", "Bu isimde bir profil zaten mevcut.")
+
+    def reset_all_profiles(self) -> None:
+        if not messagebox.askyesno(
+            "Tümünü Sıfırla",
+            "Tüm profiller, gruplar ve tuş atamaları silinsin mi?\n"
+            "Başlat/durdur kısayolu ESC olarak sıfırlanacak.",
+            parent=self.root,
+        ):
+            return
+        self.clicker.set_enabled(False)
+        if self._marker_save_job is not None:
+            self.root.after_cancel(self._marker_save_job)
+            self._marker_save_job = None
+        self.clicker.configure([], sequence_groups=[])
+        try:
+            data = reset_profiles()
+            config = AppConfig()
+            save_config(config)
+        except RuntimeError as exc:
+            messagebox.showerror("Sıfırlama Hatası", str(exc), parent=self.root)
+            return
+        self.profiles_data = data
+        self.active_profile = data["active_profile"]
+        self.key_configs = []
+        self.sequence_groups = []
+        self.active_group_ids.clear()
+        self.clicker.app_config = config
+        self.panic_btn.configure(text=config.panic_key.upper())
+        self.refresh_profile_combobox()
+        self.refresh_keys_list_ui()
 
     def delete_profile(self):
         if len(self.profiles_data["profiles"]) <= 1:

@@ -5,10 +5,21 @@ import unittest
 from pathlib import Path
 
 from kodlar.config import AppConfig, load_config, save_config
-from kodlar.profile_store import load_profiles, save_profiles
+from kodlar.profile_store import default_profiles, load_profiles, reset_profiles, save_profiles
 
 
 class StorageTests(unittest.TestCase):
+    def test_reset_removes_macros_groups_and_old_recovery_backup(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "profiles.json"
+            save_profiles({"active_profile": "Oyun", "profiles": {"Oyun": [{"key": "x"}]},
+                           "groups": {"Oyun": [{"name": "Grup"}]}}, path)
+            self.assertEqual(reset_profiles(path), default_profiles())
+            self.assertEqual(load_profiles(path), default_profiles())
+            # Recovery must also remain empty after a later corrupt write.
+            path.write_text("{broken", encoding="utf-8")
+            self.assertEqual(load_profiles(path), default_profiles())
+
     def test_profile_save_and_load(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "profiles.json"

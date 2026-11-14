@@ -45,6 +45,26 @@ class WorkerTests(unittest.TestCase):
         self.assertEqual(engine.mouse.position, (10, 20))
         engine.log_activity.assert_called_once()
 
+    def test_target_cursor_stays_until_button_up_can_be_processed(self):
+        worker, engine = self.worker(click_x=100, click_y=200)
+        trace = []
+
+        class Mouse:
+            position = (10, 20)
+
+            def press(self, button):
+                trace.append(('down', self.position))
+
+            def release(self, button):
+                trace.append(('up', self.position))
+
+        engine.mouse = Mouse()
+        worker.wait = lambda seconds: trace.append(('wait', seconds, engine.mouse.position)) or False
+        self.assertTrue(worker.press_key())
+        self.assertEqual(trace[-2], ('up', (100, 200)))
+        self.assertEqual(trace[-1], ('wait', 0.05, (100, 200)))
+        self.assertEqual(engine.mouse.position, (10, 20))
+
     def run_colors(self, colors, **settings):
         worker, engine = self.worker(screen_mode=True, target_color='#ffffff', **settings)
         pixels = Mock()
