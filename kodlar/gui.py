@@ -328,6 +328,10 @@ class ClickerApp:
                 pass
         self.markers = {}
         
+        # Editing markers must never cover the game while macros are running.
+        if self.clicker.is_running:
+            return
+
         trans_color = "#000001"
         
         # 1. Normal tuşların işaretçileri
@@ -1292,11 +1296,16 @@ class ClickerApp:
         else:
             overlay.destroy()
             
-            color = get_pixel_color_win32(x, y)
-            if not color:
-                color = "#ffffff"
-                
-            self.log_queue.put(("pixel_capture", (config, x, y, color, button, coord_lbl, color_preview)))
+            # Wait for the capture overlay to leave the desktop compositor.
+            def sample_pixel():
+                color = get_pixel_color_win32(x, y)
+                if not color:
+                    if button.winfo_exists():
+                        button.configure(text="Piksel Seç", bg=self.input_bg, fg=self.text_primary)
+                    self.clicker.log("Piksel okunamadı; önceki hedef korundu.")
+                    return
+                self.log_queue.put(("pixel_capture", (config, x, y, color, button, coord_lbl, color_preview)))
+            self.root.after(100, sample_pixel)
 
     def cancel_overlay_capture(self, overlay, button):
         overlay.destroy()
@@ -1453,6 +1462,7 @@ class ClickerApp:
         self.clicker.log(f"{config.key.upper()} basıcısı {state_str} yapıldı.")
 
     def update_running_ui(self, active: bool):
+        self.draw_markers()
         if active:
             self.status_badge.configure(
                 text="DURDUR",

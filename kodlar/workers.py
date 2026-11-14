@@ -108,9 +108,12 @@ class KeyClickerWorker(StoppableWorker):
                                 self.config.click_x,
                                 self.config.click_y,
                             )
+                            # Let the target process observe the cursor move before pressing.
+                            if self.wait(0.03) or not self._can_run():
+                                return
                             self.clicker.mouse.press(mouse_button)
                             try:
-                                self.wait(random.uniform(0.025, 0.045))
+                                self.wait(random.uniform(0.06, 0.08))
                             finally:
                                 self.clicker.mouse.release(mouse_button)
                         finally:
@@ -118,7 +121,7 @@ class KeyClickerWorker(StoppableWorker):
                     else:
                         self.clicker.mouse.press(mouse_button)
                         try:
-                            self.wait(random.uniform(0.025, 0.045))
+                            self.wait(random.uniform(0.06, 0.08))
                         finally:
                             self.clicker.mouse.release(mouse_button)
                     self.clicker.log_activity(
@@ -202,8 +205,17 @@ class KeyClickerWorker(StoppableWorker):
     def _run_screen_mode(self, pixels: PixelSampler) -> None:
         # Her renk-yokluğu döneminde yalnızca bir kez tetikle.
         triggered = False
+        target = None
         while not self.stop_event.is_set():
+            current_target = (
+                self.config.pixel_x, self.config.pixel_y,
+                self.config.target_color, self.config.invert_color,
+            )
+            if current_target != target:
+                target = current_target
+                triggered = False
             if not self._can_run() or not self.config.has_pixel_target:
+                triggered = False
                 self.wait(0.1)
                 continue
 
@@ -213,7 +225,8 @@ class KeyClickerWorker(StoppableWorker):
                 continue
 
             matches = is_color_close(color, self.config.target_color)
-            if matches:
+            should_trigger = matches if self.config.invert_color else not matches
+            if not should_trigger:
                 triggered = False
                 self.wait(0.05)
                 continue
@@ -227,9 +240,16 @@ class KeyClickerWorker(StoppableWorker):
 
             def color_returned() -> bool:
                 current = pixels.get(self.config.pixel_x, self.config.pixel_y)
-                return bool(current and is_color_close(current, self.config.target_color))
+                if not current:
+                    return True  # Do not act on an unreadable pixel.
+                matches_now = is_color_close(current, self.config.target_color)
+                return not (matches_now if self.config.invert_color else not matches_now)
 
-            if self._interruptible_delay(delay, color_returned):
+            if (
+                self._interruptible_delay(delay, color_returned)
+                and self._can_run()
+                and not color_returned()
+            ):
                 self.press_key()
                 self.execute_chain_actions()
                 triggered = True
