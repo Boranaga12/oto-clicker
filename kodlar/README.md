@@ -5,7 +5,7 @@ uygulaması.
 
 ## Çalıştırma
 
-Proje kökündeki `baslat.bat` dosyasına çift tıklayın. Başlatıcı uygun Python
+Proje kökündeki `baslat.bat` dosyasına çift tıklayın. Python 3.10 veya daha yenisini bilgisayarınıza bir kez kurun. Başlatıcı mevcut Python
 kurulumunu seçer, eksik bağımlılıkları yükler ve uygulamayı konsolsuz açar.
 
 Terminalden çalıştırmak için:

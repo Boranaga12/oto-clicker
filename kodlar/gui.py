@@ -60,11 +60,11 @@ class ClickerApp:
         
         self.root.configure(bg=self.bg_color)
         self.root.title("Arık Makro")
-        self.root.geometry("560x760")
+        self.root.geometry("560x640")
         
         # İç içe grup kartları için okunabilir, kullanıcı tarafından ayarlanabilir alan.
         self.root.resizable(True, True)
-        self.root.minsize(480, 420)
+        self.root.minsize(480, 360)
         
         # En ustte kalma (Always on Top) varsayilan etkin
         self.root.attributes("-topmost", True)
@@ -90,13 +90,13 @@ class ClickerApp:
         # 1. Ust Durum & Kacis Tusu Alani
         self.header_frame = tk.Frame(
             self.root, bg=self.card_color, padx=10, pady=8, 
-            bd=1, relief="solid", highlightbackground=self.border_color, highlightthickness=0
+            bd=0, highlightbackground=self.border_color, highlightthickness=1
         )
         self.header_frame.pack(side="top", fill="x", padx=10, pady=(10, 5))
         
         # Header Row 1: Title, Topmost toggle & Status Badge
         top_row = tk.Frame(self.header_frame, bg=self.card_color)
-        top_row.pack(fill="x", pady=(0, 5))
+        top_row.pack(fill="x")
         
         title_lbl = tk.Label(
             top_row, text="ARIK MAKRO", 
@@ -121,27 +121,19 @@ class ClickerApp:
         )
         self.chk_topmost.pack(side="right", padx=(0, 10))
         
-        # Header Row 2: "Sistemi Baslat/Durdur" assigner
-        bottom_row = tk.Frame(self.header_frame, bg=self.card_color)
-        bottom_row.pack(fill="x", pady=(2, 0))
-        
-        tk.Label(
-            bottom_row, text="Sistemi Başlat/Durdur:", 
-            bg=self.card_color, fg=self.text_secondary, font=("Segoe UI", 8)
-        ).pack(side="left")
-        
+        bottom_row = top_row
         self.panic_btn = tk.Button(
             bottom_row, text=self.clicker.app_config.panic_key.upper(), font=("Segoe UI", 8, "bold"),
             bg=self.input_bg, fg=self.text_primary, bd=0, activebackground=self.border_color,
             activeforeground="white", padx=8, pady=2,
             command=lambda: self.start_key_capture("panic", None, self.panic_btn)
         )
-        self.panic_btn.pack(side="right")
+        self.panic_btn.pack(side="left", padx=8)
         
         # 2. Profil Secim Alani
         self.profile_frame = tk.Frame(
             self.root, bg=self.card_color, padx=10, pady=6,
-            bd=1, relief="solid", highlightbackground=self.border_color, highlightthickness=0
+            bd=0, highlightbackground=self.border_color, highlightthickness=1
         )
         self.profile_frame.pack(side="top", fill="x", padx=10, pady=(5, 5))
         
@@ -175,19 +167,19 @@ class ClickerApp:
         self.list_header.pack(side="top", fill="x")
         
         tk.Label(
-            self.list_header, text="Tuşlar ve Sıralı Gruplar",
+            self.list_header, text="Makrolar",
             bg=self.bg_color, fg=self.text_primary, font=("Segoe UI", 9, "bold")
         ).pack(side="left")
         
         self.add_key_btn = tk.Button(
-            self.list_header, text="Yeni Tuş Ekle", font=("Segoe UI", 8, "bold"),
+            self.list_header, text="+ Tuş", font=("Segoe UI", 8, "bold"),
             bg=self.accent_color, fg="white", bd=0, activebackground=self.accent_hover,
             activeforeground="white", padx=10, pady=3, command=self.add_blank_key_config
         )
         self.add_key_btn.pack(side="right")
 
         self.add_group_btn = tk.Button(
-            self.list_header, text="Yeni Grup Ekle", font=("Segoe UI", 8, "bold"),
+            self.list_header, text="+ Grup", font=("Segoe UI", 8, "bold"),
             bg=self.success_color, fg="white", bd=0,
             activebackground=self.success_hover, activeforeground="white",
             padx=10, pady=3, command=self.add_root_group,
@@ -199,7 +191,7 @@ class ClickerApp:
         
         # 4. Log Alanı (Alt)
         self.console_area = tk.Frame(
-            self.root, bg=self.card_color, bd=1, relief="solid", highlightbackground=self.border_color, highlightthickness=0
+            self.root, bg=self.card_color, bd=0, highlightbackground=self.border_color, highlightthickness=1
         )
         self.console_area.pack(side="bottom", fill="x", padx=10, pady=(0, 10))
         
@@ -208,7 +200,7 @@ class ClickerApp:
         log_header.pack(fill="x")
         
         tk.Label(
-            log_header, text="Canlı Loglar", bg=self.card_color, fg=self.text_secondary, font=("Segoe UI", 8, "bold")
+            log_header, text="Kayıtlar", bg=self.card_color, fg=self.text_secondary, font=("Segoe UI", 8, "bold")
         ).pack(side="left")
         
         clear_btn = tk.Button(
@@ -313,7 +305,7 @@ class ClickerApp:
             config.pixel_y = center_y
             cfg_id = id(config)
             if cfg_id in self.config_widgets:
-                self.config_widgets[cfg_id]["coord_lbl"].configure(text=f"Konum: ({center_x}, {center_y})")
+                self.config_widgets[cfg_id]["coord_lbl"].configure(text=f" ({center_x}, {center_y})")
                 color = get_pixel_color_win32(center_x, center_y)
                 if color:
                     config.target_color = color
@@ -323,7 +315,7 @@ class ClickerApp:
             config.click_y = center_y
             cfg_id = id(config)
             if cfg_id in self.config_widgets:
-                self.config_widgets[cfg_id]["loc_lbl"].configure(text=f"Konum: ({center_x}, {center_y})")
+                self.config_widgets[cfg_id]["loc_lbl"].configure(text=f" ({center_x}, {center_y})")
         marker_window.geometry(f"100x40+{x}+{y}")
         self.schedule_marker_save()
 
@@ -457,7 +449,7 @@ class ClickerApp:
                     if btn.winfo_exists():
                         btn.configure(text="Piksel Seç", bg=self.input_bg, fg=self.text_primary)
                     if lbl.winfo_exists():
-                        lbl.configure(text=f"Konum: ({x}, {y})")
+                        lbl.configure(text=f" ({x}, {y})")
                     if preview.winfo_exists():
                         preview.configure(bg=color)
                         
@@ -472,7 +464,7 @@ class ClickerApp:
                     if btn.winfo_exists():
                         btn.configure(text="Konum Seç", bg=self.input_bg, fg=self.text_primary)
                     if lbl.winfo_exists():
-                        lbl.configure(text=f"Konum: ({x}, {y})")
+                        lbl.configure(text=f" ({x}, {y})")
                         
                     self.clicker.log(f"{config.key.upper()} tıklama konumu seçildi: ({x}, {y})")
                     self.draw_markers()
@@ -518,7 +510,7 @@ class ClickerApp:
         self.log_text = tk.Text(
             self.log_container_frame, bg="#0d1117", fg="#c9d1d9",
             font=("Consolas", 8), bd=0, highlightthickness=0,
-            state="disabled", wrap="word", height=4
+            state="disabled", wrap="word", height=2
         )
         
         scrollbar = tk.Scrollbar(self.log_container_frame, command=self.log_text.yview)
@@ -720,7 +712,7 @@ class ClickerApp:
             if cfg_id in self.config_widgets:
                 frame = self.config_widgets[cfg_id]["click_frame"]
                 if is_mouse:
-                    frame.pack(fill="x", padx=10, pady=2)
+                    frame.pack(fill="x", padx=5, pady=1)
                 else:
                     frame.pack_forget()
                     
@@ -892,12 +884,12 @@ class ClickerApp:
         outer = tk.Frame(
             parent,
             bg=border_color,
-            padx=2,
-            pady=2,
+            padx=1,
+            pady=1,
         )
-        outer.pack(fill="x", padx=(4 + depth * 8, 4), pady=4)
+        outer.pack(fill="x", padx=(3, 0), pady=3)
 
-        card = tk.Frame(outer, bg=self.card_color, padx=7, pady=7)
+        card = tk.Frame(outer, bg=self.card_color, padx=4, pady=4)
         card.pack(fill="x")
 
         header = tk.Frame(card, bg=self.card_color)
@@ -918,10 +910,10 @@ class ClickerApp:
             fg=self.text_primary,
             insertbackground=self.text_primary,
             bd=0,
-            font=("Segoe UI", 9, "bold"),
+            font=("Segoe UI", 9, "bold"), width=8,
         )
         name_entry.insert(0, group.name)
-        name_entry.pack(side="left", fill="x", expand=True, ipady=3)
+        name_entry.pack(side="left", fill="x", expand=True, ipady=2)
         name_entry.bind(
             "<FocusOut>",
             lambda _event, g=group, entry=name_entry: self.save_group_name(g, entry),
@@ -947,12 +939,12 @@ class ClickerApp:
         )
         delete_button.pack(side="right", padx=(4, 0))
 
-        controls = tk.Frame(card, bg=self.card_color)
-        controls.pack(fill="x", pady=(6, 4))
+        controls = tk.Frame(header, bg=self.card_color)
+        controls.pack(side="right", padx=4)
 
         start_button = tk.Button(
             controls,
-            text="▶ Grubu Başlat",
+            text="▶ Başlat",
             bg=self.success_color,
             fg="white",
             activebackground=self.success_hover,
@@ -967,7 +959,7 @@ class ClickerApp:
 
         add_key_button = tk.Button(
             controls,
-            text="+ İçine Tuş",
+            text="+ Tuş",
             bg=self.accent_color,
             fg="white",
             activebackground=self.accent_hover,
@@ -982,7 +974,7 @@ class ClickerApp:
 
         add_group_button = tk.Button(
             controls,
-            text="+ İçine Grup",
+            text="+ Grup",
             bg=self.input_bg,
             fg=self.text_primary,
             activebackground=self.border_color,
@@ -996,20 +988,6 @@ class ClickerApp:
         )
         add_group_button.pack(side="right", padx=(0, 4))
 
-        helper = tk.Label(
-            card,
-            text=(
-                "İlk adımı açınca sıra otomatik başlar."
-                if group.children
-                else "Boş grup • “İçine Tuş” veya “İçine Grup” ile başlayın."
-            ),
-            bg=self.card_color,
-            fg=self.text_secondary,
-            font=("Segoe UI", 7, "italic"),
-            anchor="w",
-        )
-        helper.pack(fill="x", pady=(0, 3))
-
         children_frame = tk.Frame(card, bg=self.card_color)
         children_frame.pack(fill="x")
 
@@ -1019,7 +997,7 @@ class ClickerApp:
                 delay_row.pack(fill="x", pady=2)
                 tk.Label(
                     delay_row,
-                    text="              ↓  önce",
+                    text="↓",
                     bg=self.card_color,
                     fg=self.text_secondary,
                     font=("Segoe UI", 8, "bold"),
@@ -1041,27 +1019,11 @@ class ClickerApp:
                 )
                 tk.Label(
                     delay_row,
-                    text="sn bekle",
+                    text="sn",
                     bg=self.card_color,
                     fg=self.text_secondary,
                     font=("Segoe UI", 8),
                 ).pack(side="left")
-
-            step_row = tk.Frame(children_frame, bg=self.card_color)
-            step_row.pack(fill="x")
-            step_text = (
-                f"{index + 1}. İLK ADIM • Bunu aktif edince sıra başlar"
-                if index == 0
-                else f"{index + 1}. ADIM"
-            )
-            tk.Label(
-                step_row,
-                text=step_text,
-                bg=self.card_color,
-                fg=border_color if index == 0 else self.text_secondary,
-                font=("Segoe UI", 7, "bold"),
-                anchor="w",
-            ).pack(fill="x", padx=2, pady=(3, 0))
 
             if item.kind == "macro":
                 config = self._find_config(item.macro_id)
@@ -1097,7 +1059,7 @@ class ClickerApp:
                 )
             if button and button.winfo_exists():
                 button.configure(
-                    text="● Çalışıyor..." if active else "▶ Grubu Başlat",
+                    text="● Aktif" if active else "▶ Başlat",
                     state="disabled" if active else "normal",
                 )
 
@@ -1109,32 +1071,10 @@ class ClickerApp:
         self.group_widgets = {}
 
         if not self.key_configs and not self.sequence_groups:
-            self.empty_lbl = tk.Label(
-                self.list_container.scrollable_frame,
-                text=(
-                    "Henüz tuş veya grup yok.\n"
-                    "Tek bir makro için “Yeni Tuş Ekle”,\n"
-                    "sıralı çalışma için “Yeni Grup Ekle”yi kullanın."
-                ),
-                bg=self.bg_color,
-                fg=self.text_secondary,
-                font=("Segoe UI", 9, "italic"),
-                justify="center",
-            )
-            self.empty_lbl.pack(pady=30, fill="x")
             self.draw_markers()
             return
 
         if self.sequence_groups:
-            guide = tk.Label(
-                self.list_container.scrollable_frame,
-                text="GRUPLAR  •  Yukarıdan aşağıya sırayla çalışır",
-                bg=self.bg_color,
-                fg=self.text_secondary,
-                font=("Segoe UI", 8, "bold"),
-                anchor="w",
-            )
-            guide.pack(fill="x", padx=4, pady=(2, 3))
             for group in self.sequence_groups:
                 self.draw_sequence_group(
                     group,
@@ -1149,15 +1089,6 @@ class ClickerApp:
             if config.id_token not in assigned_ids
         ]
         if ungrouped:
-            label = tk.Label(
-                self.list_container.scrollable_frame,
-                text="BAĞIMSIZ TUŞLAR",
-                bg=self.bg_color,
-                fg=self.text_secondary,
-                font=("Segoe UI", 8, "bold"),
-                anchor="w",
-            )
-            label.pack(fill="x", padx=4, pady=(8 if self.sequence_groups else 2, 2))
             for config in ungrouped:
                 self.draw_card_row(config)
 
@@ -1170,29 +1101,27 @@ class ClickerApp:
 
         card = tk.Frame(
             parent or self.list_container.scrollable_frame, bg=self.card_color,
-            bd=1, relief="solid", highlightbackground=self.border_color, highlightthickness=0
+            bd=0, highlightbackground=self.border_color, highlightthickness=1
         )
-        card.pack(fill="x", pady=4, padx=4, ipady=4)
+        card.pack(fill="x", pady=3, padx=0)
         
         # 1. Satır: Tuş Seçici
         row1 = tk.Frame(card, bg=self.card_color)
-        row1.pack(fill="x", padx=10, pady=2)
+        row1.pack(fill="x", padx=5, pady=(4, 0))
         
-        tk.Label(row1, text="Tuş:", bg=self.card_color, fg=self.text_secondary, font=("Segoe UI", 8)).pack(side="left")
         key_btn = tk.Button(
             row1, text=config.key.upper(), font=("Segoe UI", 8, "bold"),
             bg=self.input_bg, fg=self.text_primary, bd=0, activebackground=self.border_color,
             activeforeground="white", padx=6, pady=2
         )
-        key_btn.pack(side="left", padx=(5, 10))
+        key_btn.pack(side="left", padx=(0, 8))
         key_btn.configure(command=lambda cfg=config, btn=key_btn: self.start_key_capture("key", cfg, btn))
         
         # 2. Satır: Aralık & Rastgelelik Girişleri
-        row2 = tk.Frame(card, bg=self.card_color)
-        row2.pack(fill="x", padx=10, pady=4)
+        row2 = row1
         
-        tk.Label(row2, text="Aralık (sn):", bg=self.card_color, fg=self.text_secondary, font=("Segoe UI", 8)).pack(side="left")
-        int_entry = self.create_modern_entry(row2, width=7)
+        tk.Label(row2, text="Aralık", bg=self.card_color, fg=self.text_secondary, font=("Segoe UI", 8)).pack(side="left")
+        int_entry = self.create_modern_entry(row2, width=6)
         int_entry.frame.pack(side="left", padx=(5, 10))
         int_entry.insert(0, f"{config.interval_seconds:.3f}")
         
@@ -1200,8 +1129,8 @@ class ClickerApp:
         int_entry.bind("<FocusOut>", lambda e, cfg=config, entry=int_entry: self.auto_save_timing(cfg, entry, "interval"))
         int_entry.bind("<Return>", lambda e, cfg=config, entry=int_entry: (self.auto_save_timing(cfg, entry, "interval"), self.root.focus_set()))
         
-        tk.Label(row2, text="+Rastg (sn):", bg=self.card_color, fg=self.text_secondary, font=("Segoe UI", 8)).pack(side="left")
-        rand_entry = self.create_modern_entry(row2, width=7)
+        tk.Label(row2, text="± sn", bg=self.card_color, fg=self.text_secondary, font=("Segoe UI", 8)).pack(side="left")
+        rand_entry = self.create_modern_entry(row2, width=6)
         rand_entry.frame.pack(side="left", padx=5)
         rand_entry.insert(0, f"{config.random_seconds:.3f}")
         
@@ -1211,7 +1140,7 @@ class ClickerApp:
         
         # 3. Satır: Durum & İzleme & Sil Butonları
         row3 = tk.Frame(card, bg=self.card_color)
-        row3.pack(fill="x", padx=10, pady=2)
+        row3.pack(fill="x", padx=5, pady=(1, 3))
         
         var = tk.IntVar(value=1 if config.enabled else 0)
         chk = tk.Checkbutton(
@@ -1244,7 +1173,7 @@ class ClickerApp:
         del_btn.pack(side="right")
         
         # 4. Satır: Ekran İzleme Ayarları (Collapsible Frame)
-        screen_frame = tk.Frame(card, bg=self.card_color, pady=4)
+        screen_frame = tk.Frame(card, bg=self.card_color)
         
         # Piksel Seç Butonu
         pixel_btn = tk.Button(
@@ -1256,7 +1185,7 @@ class ClickerApp:
         
         # Konum & Renk Geri Bildirimi
         coord_lbl = tk.Label(
-            screen_frame, text=f"Konum: ({config.pixel_x}, {config.pixel_y})" if config.has_pixel_target else "Konum: Seçilmedi",
+            screen_frame, text=f" ({config.pixel_x}, {config.pixel_y})" if config.has_pixel_target else "—",
             bg=self.card_color, fg=self.text_secondary, font=("Segoe UI", 8)
         )
         coord_lbl.pack(side="left", padx=(10, 5))
@@ -1272,7 +1201,7 @@ class ClickerApp:
         
         # Ekran modu aciksa frame'i paketle
         if config.screen_mode:
-            screen_frame.pack(fill="x", padx=10, pady=2)
+            screen_frame.pack(fill="x", padx=5, pady=1)
             
         # 5. Satır: Tıklama Hedef Koordinat Ayarları (Collapsible Frame)
         click_frame = tk.Frame(card, bg=self.card_color, pady=2)
@@ -1287,7 +1216,7 @@ class ClickerApp:
         
         # Seçili Koordinat Geri Bildirimi
         loc_lbl = tk.Label(
-            click_frame, text=f"Konum: ({config.click_x}, {config.click_y})" if config.has_click_target else "Konum: İmleç",
+            click_frame, text=f" ({config.click_x}, {config.click_y})" if config.has_click_target else "İmleç",
             bg=self.card_color, fg=self.text_secondary, font=("Segoe UI", 8)
         )
         loc_lbl.pack(side="left", padx=10)
@@ -1311,7 +1240,7 @@ class ClickerApp:
             "mouse x1", "mouse x2", "x1", "x2",
         )
         if is_mouse:
-            click_frame.pack(fill="x", padx=10, pady=2)
+            click_frame.pack(fill="x", padx=5, pady=1)
             
         self.config_widgets[id(config)] = {
             "card": card,
@@ -1415,7 +1344,7 @@ class ClickerApp:
         config.click_y = -1
         self.save_current_configs_to_profiles(update_workers=False)
         
-        loc_lbl.configure(text="Konum: İmleç")
+        loc_lbl.configure(text="İmleç")
         self.clicker.log(f"{config.key.upper()} tıklama konumu sıfırlandı, imleç konumuna tıklanacak.")
         self.draw_markers()
 
@@ -1427,7 +1356,7 @@ class ClickerApp:
         if cfg_id in self.config_widgets:
             frame = self.config_widgets[cfg_id]["screen_frame"]
             if config.screen_mode:
-                frame.pack(fill="x", padx=10, pady=2)
+                frame.pack(fill="x", padx=5, pady=1)
             else:
                 frame.pack_forget()
                 

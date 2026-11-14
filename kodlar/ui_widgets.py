@@ -6,18 +6,18 @@ from dataclasses import dataclass
 
 @dataclass(frozen=True, slots=True)
 class UITheme:
-    background: str = "#111827"
-    card: str = "#1f2937"
+    background: str = "#11161f"
+    card: str = "#1c2532"
     text_primary: str = "#f3f4f6"
     text_secondary: str = "#9ca3af"
     accent: str = "#3b82f6"
     accent_hover: str = "#2563eb"
-    danger: str = "#ef4444"
+    danger: str = "#c95161"
     danger_hover: str = "#dc2626"
-    success: str = "#10b981"
+    success: str = "#239d83"
     success_hover: str = "#059669"
-    border: str = "#374151"
-    input_background: str = "#374151"
+    border: str = "#303e50"
+    input_background: str = "#303e50"
 
 
 DEFAULT_THEME = UITheme()

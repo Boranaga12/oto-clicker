@@ -9,3 +9,10 @@ __pycache__/
 .pytest_cache/
 .ruff_cache/
 
+
+# Generated analysis and packaging outputs
+graphify-out/
+*.egg-info/
+build/
+dist/
+python_installer.exe

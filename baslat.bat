@@ -9,7 +9,6 @@ set "VENV_PYTHON=%~dp0.venv\Scripts\python.exe"
 set "VENV_PYTHONW=%~dp0.venv\Scripts\pythonw.exe"
 set "REQUIREMENTS=%~dp0kodlar\requirements.txt"
 set "REQUIREMENTS_STAMP=%~dp0.venv\requirements.installed"
-set "INSTALLER_PATH=%~dp0python_installer.exe"
 
 if exist "%VENV_PYTHON%" goto dependencies
 
@@ -30,35 +29,11 @@ if not defined BASE_PYTHON (
     )
 )
 
-if not defined BASE_PYTHON goto install_python
-goto create_environment
-
-:install_python
-echo Python 3.10 veya daha yenisi bulunamadi.
-echo Python kullanici hesabiniza kuruluyor; lutfen bekleyin...
-
-if not exist "%~dp0python_installer.exe" (
-    echo HATA: Python yukleyicisi bulunamadi.
-    echo Python'u python.org adresinden kurup tekrar deneyin.
-    goto failure
-)
-
-powershell.exe -NoProfile -NonInteractive -Command "if ((Get-AuthenticodeSignature -LiteralPath $env:INSTALLER_PATH).Status -ne 'Valid') { exit 1 }" >nul 2>&1
-if errorlevel 1 (
-    echo HATA: Python yukleyicisinin dijital imzasi gecerli degil.
-    goto failure
-)
-
-start "" /wait "%INSTALLER_PATH%" /quiet InstallAllUsers=0 PrependPath=1 Include_launcher=1 InstallLauncherAllUsers=0 Include_test=0
-if errorlevel 1 (
-    echo HATA: Python kurulumu tamamlanamadi.
-    goto failure
-)
-
-if exist "%LocalAppData%\Programs\Python\Python310\python.exe" (
-    set "BASE_PYTHON=%LocalAppData%\Programs\Python\Python310\python.exe"
-) else (
-    echo HATA: Kurulum tamamlandi ancak python.exe bulunamadi.
+if not defined BASE_PYTHON (
+    echo HATA: Python 3.10 veya daha yenisi bulunamadi.
+    echo Python'u https://www.python.org/downloads/ adresinden bir kez kurun.
+    echo Kurulumda "Add python.exe to PATH" secenegini isaretleyin.
+    echo Ardindan bu dosyayi yeniden calistirin.
     goto failure
 )
 
