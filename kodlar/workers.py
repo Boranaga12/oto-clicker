@@ -9,11 +9,10 @@ from collections.abc import Callable
 from pynput import keyboard
 from pynput.mouse import Button
 
-from .models import KeyConfig
+from .models import KeyConfig, LEFT_MOUSE_NAMES, clamp_click_interval
 from .platform_win import PixelSampler, is_color_close
 
 
-LEFT_MOUSE_NAMES = {"sol klik", "left click", "sol tık"}
 RIGHT_MOUSE_NAMES = {"sağ klik", "sag klik", "right click", "sağ tık"}
 MIDDLE_MOUSE_NAMES = {"orta klik", "middle click", "orta tık"}
 X1_MOUSE_NAMES = {"mouse x1", "x1"}
@@ -233,7 +232,7 @@ class KeyClickerWorker(StoppableWorker):
                 self.wait(0.05)
                 continue
 
-            delay = self.config.interval_seconds + random.uniform(
+            delay = clamp_click_interval(self.config.key, self.config.interval_seconds) + random.uniform(
                 0.0, self.config.random_seconds
             )
 
@@ -280,7 +279,7 @@ class KeyClickerWorker(StoppableWorker):
                     continue
                 if self.press_key():
                     self.execute_chain_actions()
-                delay = self.config.interval_seconds + random.uniform(
+                delay = clamp_click_interval(self.config.key, self.config.interval_seconds) + random.uniform(
                     0.0, self.config.random_seconds
                 )
                 self._interruptible_delay(delay)

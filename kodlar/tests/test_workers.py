@@ -80,6 +80,7 @@ class WorkerTests(unittest.TestCase):
         pixels.get.side_effect = sample
         worker.wait = lambda seconds: worker.stop_event.is_set()
         worker.press_key = Mock()
+        worker._interruptible_delay = Mock(return_value=True)
         worker._run_screen_mode(pixels)
         return worker
 
@@ -87,7 +88,7 @@ class WorkerTests(unittest.TestCase):
         worker = self.run_colors(['#000000'] * 6)
         self.assertEqual(worker.press_key.call_count, 3)
 
-    def test_repeated_presses_respect_interval(self):
+    def test_repeated_presses_enforce_left_click_minimum_at_runtime(self):
         worker, engine = self.worker(screen_mode=True, target_color='#ffffff')
         worker.config.interval_seconds = 0.02
         pixels = Mock()
@@ -104,7 +105,7 @@ class WorkerTests(unittest.TestCase):
         worker.press_key = press
         worker._run_screen_mode(pixels)
         self.assertEqual(len(pressed), 3)
-        self.assertTrue(all(b - a >= 0.019 for a, b in zip(pressed, pressed[1:])))
+        self.assertTrue(all(b - a >= 0.049 for a, b in zip(pressed, pressed[1:])))
 
     def test_recovery_during_cursor_settle_cancels_mouse_down(self):
         worker, engine = self.worker(click_x=100, click_y=200)
@@ -133,6 +134,24 @@ class WorkerTests(unittest.TestCase):
     def test_inverted_condition_triggers_when_color_matches(self):
         worker = self.run_colors(['#ffffff', '#ffffff'], invert_color=True)
         worker.press_key.assert_called_once()
+
+
+class TimingEditorTests(unittest.TestCase):
+    def test_small_left_click_intervals_are_replaced_without_a_message(self):
+        from kodlar.gui import ClickerApp
+        for value in ('0', '0.001', '0,049', '-1'):
+            with self.subTest(value=value):
+                app = ClickerApp.__new__(ClickerApp)
+                app.clicker = Mock()
+                app.save_current_configs_to_profiles = Mock()
+                entry = Mock()
+                entry.get.return_value = value
+                config = KeyConfig('sol klik', 1, 0)
+                app.auto_save_timing(config, entry, 'interval')
+                self.assertEqual(config.interval_seconds, 0.050)
+                entry.insert.assert_called_once_with(0, '0.050')
+                app.clicker.log.assert_not_called()
+                app.save_current_configs_to_profiles.assert_called_once()
 
 
 class CaptureTests(unittest.TestCase):

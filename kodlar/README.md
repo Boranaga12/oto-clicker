@@ -116,3 +116,7 @@ Yeni düzeni kullanmak için ZIP'i boş bir klasöre çıkarın; eski klasörün
 dışındaki AppData alanında saklandığı için yeni klasörde de korunur.
 GitHub'ın kaynak kod ZIP'i geliştirme dosyalarını içerir; uygulama paketi için
 Releases içindeki `arik-makro.zip` dosyasını indirin.
+
+Sol tıklama aralığı en az `0.050` saniyedir. Daha küçük değerler, eski profiller
+yüklendiğinde ve zamanlama alanı kaydedildiğinde uyarı verilmeden bu değere çekilir.
+Bu değer bekleme aralığıdır; basılı tutma ve hedefte kalma süreleri ayrıca uygulanır.

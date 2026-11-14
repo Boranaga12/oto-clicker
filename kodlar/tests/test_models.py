@@ -3,12 +3,30 @@ from __future__ import annotations
 import unittest
 
 from kodlar.models import (
+    KeyConfig,
     key_config_from_dict,
     key_config_to_dict,
 )
 
 
 class ModelTests(unittest.TestCase):
+    def test_old_left_click_profiles_are_clamped_for_all_aliases(self) -> None:
+        for key in ("sol klik", "left click", " SOL KLIK ", "sol tık"):
+            with self.subTest(key=key):
+                config = key_config_from_dict({"key": key, "interval_seconds": 0.001})
+                self.assertEqual(config.interval_seconds, 0.050)
+        self.assertEqual(KeyConfig("SOL KLIK", 0.02, 0).interval_seconds, 0.050)
+
+    def test_serialization_clamps_left_click_after_direct_timing_changes(self) -> None:
+        config = KeyConfig("sol klik", 1, 0)
+        config.interval_seconds = 0.001
+        self.assertEqual(key_config_to_dict(config)["interval_seconds"], 0.050)
+
+    def test_other_keys_and_larger_intervals_are_unchanged(self) -> None:
+        for key in ("a", "sağ klik", "orta klik"):
+            self.assertEqual(KeyConfig(key, 0.001, 0).interval_seconds, 0.001)
+        self.assertEqual(KeyConfig("sol klik", 0.075, 0).interval_seconds, 0.075)
+
     def test_invalid_values_are_normalised(self) -> None:
         config = key_config_from_dict({
             "key": "f1",

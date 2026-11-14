@@ -6,6 +6,16 @@ from typing import Any, Mapping
 from uuid import uuid4
 
 
+LEFT_MOUSE_NAMES = {"sol klik", "left click", "sol tık"}
+MIN_LEFT_CLICK_INTERVAL = 0.050
+
+
+def clamp_click_interval(key: str, value: float) -> float:
+    if key.strip().lower() in LEFT_MOUSE_NAMES:
+        return _as_float(value, 1.0, MIN_LEFT_CLICK_INTERVAL)
+    return value
+
+
 def new_id() -> str:
     return uuid4().hex
 
@@ -43,6 +53,9 @@ class KeyConfig:
     id_token: str = field(default_factory=new_id)
     action_chain: bool = False
     actions: list[dict[str, Any]] = field(default_factory=list)
+
+    def __post_init__(self) -> None:
+        self.interval_seconds = clamp_click_interval(self.key, self.interval_seconds)
 
     @property
     def has_click_target(self) -> bool:
@@ -100,4 +113,6 @@ def key_config_from_dict(item: Mapping[str, Any]) -> KeyConfig:
 
 
 def key_config_to_dict(config: KeyConfig) -> dict[str, Any]:
-    return asdict(config)
+    data = asdict(config)
+    data["interval_seconds"] = clamp_click_interval(config.key, config.interval_seconds)
+    return data

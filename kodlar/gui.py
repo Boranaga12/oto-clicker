@@ -17,6 +17,7 @@ from .config import AppConfig, save_config
 from .engine import RandomizedAutoClicker
 from .models import (
     KeyConfig,
+    clamp_click_interval,
     key_config_from_dict,
     key_config_to_dict,
     new_id,
@@ -771,6 +772,12 @@ class ClickerApp:
             
         elif target_type == "key" and config:
             config.key = key_name
+            config.interval_seconds = clamp_click_interval(config.key, config.interval_seconds)
+            widgets = self.config_widgets.get(id(config))
+            if widgets:
+                entry = widgets["int_entry"]
+                entry.delete(0, tk.END)
+                entry.insert(0, f"{config.interval_seconds:.3f}")
             self.clicker.log(f"Tetikleme tuşu değiştirildi: {key_name.upper()}")
             
             is_mouse = key_name.lower() in (
@@ -1413,6 +1420,11 @@ class ClickerApp:
         try:
             raw_text = entry.get().strip().replace(",", ".")
             val = round(float(raw_text), 3)
+            adjusted = False
+            if field_type == "interval":
+                clamped = clamp_click_interval(config.key, val)
+                adjusted = clamped != val
+                val = clamped
             if val < 0:
                 raise ValueError("Değer negatif olamaz.")
             if field_type == "interval":
@@ -1425,7 +1437,8 @@ class ClickerApp:
             self.save_current_configs_to_profiles(update_workers=False)
             entry.delete(0, tk.END)
             entry.insert(0, f"{val:.3f}")
-            self.clicker.log(f"Zamanlama güncellendi: {config.key.upper()} ({config.interval_seconds:.3f} + {config.random_seconds:.3f} sn)")
+            if not adjusted:
+                self.clicker.log(f"Zamanlama güncellendi: {config.key.upper()} ({config.interval_seconds:.3f} + {config.random_seconds:.3f} sn)")
         except ValueError as e:
             entry.delete(0, tk.END)
             if field_type == "interval":
