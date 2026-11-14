@@ -103,7 +103,7 @@ def key_config_from_dict(item: Mapping[str, Any]) -> KeyConfig:
         pixel_x=_as_int(item.get("pixel_x"), 0),
         pixel_y=_as_int(item.get("pixel_y"), 0),
         target_color=str(item.get("target_color", "")),
-        invert_color=bool(item.get("invert_color", False)),
+        invert_color=False,  # Legacy flag: monitoring always reacts to a different color.
         click_x=_as_int(item.get("click_x"), -1),
         click_y=_as_int(item.get("click_y"), -1),
         id_token=str(item.get("id_token") or new_id()),

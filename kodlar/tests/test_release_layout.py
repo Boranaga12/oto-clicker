@@ -19,6 +19,7 @@ class ReleaseLayoutTests(unittest.TestCase):
                 entries = {name.split('/')[1] for name in bundle.namelist()}
                 self.assertEqual(entries, {'baslat.bat', 'kodlar'})
                 self.assertIn('oto-clicker/kodlar/hata_ayikla.py', bundle.namelist())
+                self.assertIn('oto-clicker/kodlar/release_notes.py', bundle.namelist())
             unpack(archive, output / 'extracted')
             launcher = (output / 'extracted/baslat.bat').read_text()
             self.assertIn('set "VENV_DIR=%~dp0kodlar\\.venv"', launcher)

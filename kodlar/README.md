@@ -120,3 +120,16 @@ Releases içindeki `arik-makro.zip` dosyasını indirin.
 Sol tıklama aralığı en az `0.050` saniyedir. Daha küçük değerler, eski profiller
 yüklendiğinde ve zamanlama alanı kaydedildiğinde uyarı verilmeden bu değere çekilir.
 Bu değer bekleme aralığıdır; basılı tutma ve hedefte kalma süreleri ayrıca uygulanır.
+
+## Sürüm ve izleme
+
+Uygulama adının yanındaki `v2.1.x` rozeti kurulu sürümü gösterir. `ⓘ` düğmesi
+bu sürümün ve önceki sürümlerin güncelleme notlarını açar. Yayın paketinin sürümü
+GitHub Actions çalışma numarasıyla otomatik artar. Yeni değişikliklerde
+`release_notes.py` içindeki CURRENT_NOTES güncellenip önceki notlar HISTORY'ye alınır.
+
+Yeni bağımsız veya gruba eklenen tuşlarda rastgele gecikme `0.010` saniyedir.
+İzlemede `Piksel Seç` sonrası tek tıklama o noktanın o anki RGB rengini kaydeder.
+Piksel tam olarak farklıysa tuş tekrarlanır; renk tekrar eşleşince bekleyen basış
+iptal edilir. Basıştan hemen önce de kontrol yapılır. Okunamayan piksel tetiklemez.
+İzleme işaretçisi sürüklenirse yeni renk sürükleme bittiğinde alınır.

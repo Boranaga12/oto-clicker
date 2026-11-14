@@ -134,3 +134,12 @@ def set_application_identity() -> None:
         )
     except (AttributeError, OSError):
         pass
+
+
+def flush_desktop() -> None:
+    """Wait until a hidden capture overlay has left the desktop compositor."""
+    if os.name == "nt":
+        try:
+            ctypes.windll.dwmapi.DwmFlush()
+        except (AttributeError, OSError):
+            pass

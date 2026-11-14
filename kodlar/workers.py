@@ -221,14 +221,13 @@ class KeyClickerWorker(StoppableWorker):
                 self.wait(0.1)
                 continue
 
-            color = pixels.get(self.config.pixel_x, self.config.pixel_y)
+            target = (self.config.pixel_x, self.config.pixel_y, self.config.target_color)
+            color = pixels.get(target[0], target[1])
             if not color:
                 self.wait(0.1)
                 continue
 
-            matches = is_color_close(color, self.config.target_color)
-            should_trigger = matches if self.config.invert_color else not matches
-            if not should_trigger:
+            if is_color_close(color, target[2], threshold=0):
                 self.wait(0.05)
                 continue
 
@@ -237,11 +236,10 @@ class KeyClickerWorker(StoppableWorker):
             )
 
             def color_returned() -> bool:
-                current = pixels.get(self.config.pixel_x, self.config.pixel_y)
-                if not current:
-                    return True  # Do not act on an unreadable pixel.
-                matches_now = is_color_close(current, self.config.target_color)
-                return not (matches_now if self.config.invert_color else not matches_now)
+                if target != (self.config.pixel_x, self.config.pixel_y, self.config.target_color):
+                    return True  # A new selection cancels the old pending press.
+                current = pixels.get(target[0], target[1])
+                return not current or is_color_close(current, target[2], threshold=0)
 
             if (
                 self._interruptible_delay(delay, color_returned)

@@ -13,6 +13,7 @@ from pynput.mouse import Button
 from . import __version__
 from .app_paths import data_directory
 from .updater import prepare_update, schedule_install
+from .release_notes import CURRENT_NOTES, HISTORY
 from .config import AppConfig, save_config
 from .engine import RandomizedAutoClicker
 from .models import (
@@ -22,7 +23,7 @@ from .models import (
     key_config_to_dict,
     new_id,
 )
-from .platform_win import get_pixel_color_win32
+from .platform_win import flush_desktop, get_pixel_color_win32
 from .profile_store import load_profiles, reset_profiles, save_profiles
 from .sequences import (
     MAX_GROUP_DEPTH,
@@ -67,7 +68,7 @@ class ClickerApp:
         self.input_bg = theme.input_background
         
         self.root.configure(bg=self.bg_color)
-        self.root.title("Arık Makro")
+        self.root.title(f"Arık Makro · v{__version__}")
         self.root.geometry("480x640")
         self.root.resizable(False, True)
         self.root.minsize(480, 360)
@@ -115,6 +116,28 @@ class ClickerApp:
             bg=self.card_color, fg=self.text_primary, font=("Segoe UI", 10, "bold")
         )
         title_lbl.pack(side="left")
+        tk.Label(
+            top_row, text=f"v{__version__}", bg=self.input_bg, fg=self.accent_color,
+            font=("Segoe UI", 8, "bold"), padx=5, pady=2,
+        ).pack(side="left", padx=(6, 2))
+        notes_button = tk.Canvas(
+            top_row, width=22, height=22, bg=self.card_color, bd=0,
+            highlightthickness=0, cursor="hand2", takefocus=True,
+        )
+        notes_button.create_oval(3, 3, 19, 19, outline=self.text_secondary, tags="ring")
+        notes_button.create_text(11, 11, text="i", fill=self.text_secondary,
+                                 font=("Segoe UI", 9, "bold"), tags="letter")
+        notes_button.pack(side="left")
+        for event_name in ("<Button-1>", "<Return>", "<space>"):
+            notes_button.bind(event_name, lambda _event: self.show_release_notes())
+        def tint_notes_button(color):
+            notes_button.itemconfigure("ring", outline=color)
+            notes_button.itemconfigure("letter", fill=color)
+        for event_name in ("<Enter>", "<FocusIn>"):
+            notes_button.bind(event_name, lambda _event: tint_notes_button(self.accent_color))
+        for event_name in ("<Leave>", "<FocusOut>"):
+            notes_button.bind(event_name, lambda _event: tint_notes_button(self.text_secondary))
+
         
         self.status_badge = tk.Button(
             top_row, text="SİSTEM KAPALI", bg=self.danger_color, fg="white",
@@ -133,15 +156,6 @@ class ClickerApp:
         )
         self.chk_topmost.pack(side="right", padx=(0, 10))
         
-        bottom_row = top_row
-        self.panic_btn = tk.Button(
-            bottom_row, text=self.clicker.app_config.panic_key.upper(), font=("Segoe UI", 8, "bold"),
-            bg=self.input_bg, fg=self.text_primary, bd=0, activebackground=self.border_color,
-            activeforeground="white", padx=8, pady=2,
-            command=lambda: self.start_key_capture("panic", None, self.panic_btn)
-        )
-        self.panic_btn.pack(side="left", padx=8)
-        
         # 2. Profil Secim Alani
         self.profile_frame = tk.Frame(
             self.root, bg=self.card_color, padx=10, pady=6,
@@ -159,6 +173,17 @@ class ClickerApp:
             self.profile_frame, self.profile_var, ["Varsayılan"], self.on_profile_menu_select
         )
         self.profile_menu.pack(side="left", padx=5)
+        self.profile_menu.configure(width=14)
+
+        self.panic_btn = tk.Button(
+            self.profile_frame, text=self.clicker.app_config.panic_key.upper(), font=("Segoe UI", 8, "bold"),
+            bg=self.input_bg, fg=self.text_primary, bd=0, activebackground=self.border_color,
+            activeforeground="white", padx=8, pady=2,
+            command=lambda: self.start_key_capture("panic", None, self.panic_btn)
+        )
+        self.panic_btn.pack(side="left", padx=8)
+
+
         
         profile_actions = tk.Menubutton(
             self.profile_frame, text="⋯", font=("Segoe UI", 12, "bold"),
@@ -237,6 +262,45 @@ class ClickerApp:
         if os.name == "nt" and not (install / ".git").exists():
             threading.Thread(target=self.check_for_update, name="update-check", daemon=True).start()
 
+    def show_release_notes(self) -> None:
+        existing = getattr(self, "_notes_window", None)
+        if existing is not None and existing.winfo_exists():
+            existing.lift()
+            return
+        window = tk.Toplevel(self.root)
+        self._notes_window = window
+        window.title("Güncelleme Notları")
+        window.configure(bg=self.card_color)
+        window.transient(self.root)
+        window.geometry("400x420")
+        window.resizable(False, True)
+        window.minsize(400, 260)
+        window.maxsize(400, self.root.winfo_screenheight())
+        window.attributes("-topmost", bool(self.topmost_var.get()))
+        tk.Label(
+            window, text="Yenilikler", bg=self.card_color, fg=self.text_primary,
+            font=("Segoe UI", 12, "bold"), anchor="w",
+        ).pack(fill="x", padx=16, pady=(16, 8))
+        content = tk.Frame(window, bg=self.card_color)
+        content.pack(fill="both", expand=True, padx=16, pady=(0, 16))
+        text = tk.Text(
+            content, bg=self.card_color, fg=self.text_primary, wrap="word",
+            font=("Segoe UI", 9), bd=0, highlightthickness=0,
+            padx=2, pady=4, cursor="arrow", spacing3=7,
+        )
+        scrollbar = tk.Scrollbar(content, command=text.yview)
+        scrollbar.pack(side="right", fill="y")
+        text.configure(yscrollcommand=scrollbar.set)
+        text.pack(side="left", fill="both", expand=True)
+        text.tag_configure("version", foreground=self.accent_color,
+                           font=("Segoe UI", 10, "bold"), spacing1=6, spacing3=10)
+        for version, notes in ((__version__, CURRENT_NOTES), *HISTORY):
+            text.insert("end", f"v{version}\n", "version")
+            for note in notes:
+                text.insert("end", f"• {note}\n")
+            text.insert("end", "\n")
+        text.configure(state="disabled")
+
     def check_for_update(self) -> None:
         try:
             stage = prepare_update(
@@ -307,6 +371,7 @@ class ClickerApp:
     def on_marker_press(self, marker_window, event):
         marker_window._drag_x = event.x
         marker_window._drag_y = event.y
+        marker_window._pending_pixel = None
 
     def focus_through_overlay(self, overlay: tk.Toplevel, x: int, y: int) -> None:
         """Ana GUI döngüsünü bloklamadan alttaki pencereye odak tıklaması ilet."""
@@ -342,15 +407,7 @@ class ClickerApp:
         center_y = y + 28
         
         if marker_type == "screen":
-            config.pixel_x = center_x
-            config.pixel_y = center_y
-            cfg_id = id(config)
-            if cfg_id in self.config_widgets:
-                self.config_widgets[cfg_id]["coord_lbl"].configure(text=f" ({center_x}, {center_y})")
-                color = get_pixel_color_win32(center_x, center_y)
-                if color:
-                    config.target_color = color
-                    self.config_widgets[cfg_id]["color_preview"].configure(bg=color)
+            marker_window._pending_pixel = (center_x, center_y)
         elif marker_type == "click":
             config.click_x = center_x
             config.click_y = center_y
@@ -358,7 +415,25 @@ class ClickerApp:
             if cfg_id in self.config_widgets:
                 self.config_widgets[cfg_id]["loc_lbl"].configure(text=f" ({center_x}, {center_y})")
         marker_window.geometry(f"100x40+{x}+{y}")
-        self.schedule_marker_save()
+        if marker_type != "screen":
+            self.schedule_marker_save()
+
+    def on_screen_marker_release(self, marker, config):
+        pending = getattr(marker, "_pending_pixel", None)
+        if pending is None:
+            return
+        marker._pending_pixel = None
+        x, y = pending
+        color = self.sample_uncovered_pixel(x, y)
+        widgets = self.config_widgets.get(id(config))
+        if color and widgets:
+            self.log_queue.put(("pixel_capture", (
+                config, x, y, color, widgets["pixel_btn"],
+                widgets["coord_lbl"], widgets["color_preview"],
+            )))
+        else:
+            marker.geometry(f"100x40+{config.pixel_x-50}+{config.pixel_y-28}")
+            self.clicker.log("Piksel okunamadı; önceki hedef korundu.")
 
     def draw_markers(self):
         # Eski işaretçileri sil
@@ -395,6 +470,7 @@ class ClickerApp:
                 
                 canvas.bind("<Button-1>", lambda event, mw=marker: self.on_marker_press(mw, event))
                 canvas.bind("<B1-Motion>", lambda event, mw=marker, c=config: self.on_marker_drag(mw, event, c, "screen"))
+                canvas.bind("<ButtonRelease-1>", lambda event, mw=marker, c=config: self.on_screen_marker_release(mw, c))
                 
                 self.markers[f"screen_{id(config)}"] = marker
                 
@@ -492,6 +568,7 @@ class ClickerApp:
                     config.pixel_x = x
                     config.pixel_y = y
                     config.target_color = color
+                    config.invert_color = False
                     self.save_current_configs_to_profiles(update_workers=False)
                     
                     if btn.winfo_exists():
@@ -819,7 +896,7 @@ class ClickerApp:
         config = KeyConfig(
             key="sol klik",
             interval_seconds=1.0,
-            random_seconds=0.0,
+            random_seconds=0.010,
             enabled=False,
             id_token=new_id(),
         )
@@ -1328,29 +1405,32 @@ class ClickerApp:
         overlay.bind("<Button-1>", lambda event: self.on_overlay_clicked(event, overlay, config, button, coord_lbl, color_preview))
         overlay.bind("<Escape>", lambda event: self.cancel_overlay_capture(overlay, button))
 
+    def sample_uncovered_pixel(self, x: int, y: int, overlay=None) -> str:
+        if overlay is not None:
+            overlay.withdraw()
+        visible = [marker for marker in self.markers.values() if marker.winfo_viewable()]
+        for marker in visible:
+            marker.withdraw()
+        try:
+            self.root.update_idletasks()
+            flush_desktop()
+            return get_pixel_color_win32(x, y)
+        finally:
+            for marker in visible:
+                if marker.winfo_exists():
+                    marker.deiconify()
+
     def on_overlay_clicked(self, event, overlay, config, button, coord_lbl, color_preview):
-        overlay._click_count = getattr(overlay, "_click_count", 0) + 1
-        x = event.x_root
-        y = event.y_root
-        
-        if overlay._click_count == 1:
-            button.configure(text="Tekrar Tıkla...")
-            self.clicker.log("Odaklanma algılandı. Lütfen aynı yere tekrar tıklayın...")
-            
-            self.focus_through_overlay(overlay, x, y)
-        else:
-            overlay.destroy()
-            
-            # Wait for the capture overlay to leave the desktop compositor.
-            def sample_pixel():
-                color = get_pixel_color_win32(x, y)
-                if not color:
-                    if button.winfo_exists():
-                        button.configure(text="Piksel Seç", bg=self.input_bg, fg=self.text_primary)
-                    self.clicker.log("Piksel okunamadı; önceki hedef korundu.")
-                    return
-                self.log_queue.put(("pixel_capture", (config, x, y, color, button, coord_lbl, color_preview)))
-            self.root.after(100, sample_pixel)
+        # Capture the selected scene without forwarding a click into the game.
+        x, y = event.x_root, event.y_root
+        color = self.sample_uncovered_pixel(x, y, overlay)
+        overlay.destroy()
+        if not color:
+            if button.winfo_exists():
+                button.configure(text="Piksel Seç", bg=self.input_bg, fg=self.text_primary)
+            self.clicker.log("Piksel okunamadı; önceki hedef korundu.")
+            return
+        self.log_queue.put(("pixel_capture", (config, x, y, color, button, coord_lbl, color_preview)))
 
     def cancel_overlay_capture(self, overlay, button):
         overlay.destroy()
@@ -1456,7 +1536,7 @@ class ClickerApp:
         config = KeyConfig(
             key="sol klik",
             interval_seconds=1.00,
-            random_seconds=0.00,
+            random_seconds=0.010,
             enabled=True,
             screen_mode=False,
             pixel_x=0,
