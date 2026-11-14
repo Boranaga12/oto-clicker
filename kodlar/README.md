@@ -129,7 +129,8 @@ GitHub Actions çalışma numarasıyla otomatik artar. Yeni değişikliklerde
 `release_notes.py` içindeki CURRENT_NOTES güncellenip önceki notlar HISTORY'ye alınır.
 
 Yeni bağımsız veya gruba eklenen tuşlarda rastgele gecikme `0.010` saniyedir.
-İzlemede `Piksel Seç` sonrası tek tıklama o noktanın o anki RGB rengini kaydeder.
+İzlemede `Piksel Seç` sonrası oyuna dönün, imleci hedef noktaya götürüp F8
+tuşuna basın. Oyun odağı değişmeden o noktanın RGB rengi kaydedilir; ESC iptal eder.
 Piksel tam olarak farklıysa tuş tekrarlanır; renk tekrar eşleşince bekleyen basış
 iptal edilir. Basıştan hemen önce de kontrol yapılır. Okunamayan piksel tetiklemez.
 İzleme işaretçisi sürüklenirse yeni renk sürükleme bittiğinde alınır.
@@ -141,3 +142,24 @@ izleme ve Aktif kutuları, grup düzenleme ve profil işlemleri kilitlenir.
 Durdurma ve güncelleme notlarını görüntüleme açık kalır. Sistem durdurulduğunda
 önceki düzenleme izinleri geri gelir. Grup/zincir aktivasyonu yalnızca geçici
 çalışma durumunu değiştirir; kayıtlı tuş ayarlarına ve profillere yazılmaz.
+
+## Tam ekran oyunda izleme tanısı
+
+1. Makroyu durdurup `Piksel Seç`e basın.
+2. KAROS'u öne getirin ve oyun çözünürlüğünün yerleşmesini bekleyin.
+3. İmleci izlenecek sabit renkli noktaya getirip F8'e basın. Seçim için pencere
+   açılmaz; F8 bu seçim sırasında oyuna iletilmez.
+4. Makroyu başlatın. Kayıtlardaki `İzleme` satırı referans RGB, okunan RGB,
+   fiziksel koordinat, ekran alanı, ön pencere ve DPI değerlerini gösterir.
+   Aynı tuşa ait farklı kartlar kısa kimlikleriyle ayırt edilir. `izleme kapalı`
+   satırı, o kartın normal zamanlayıcı olduğunu belirtir.
+
+Seçimden sonra çözünürlük/monitör düzeni değişirse bu izleme duraklatılır;
+oyun içindeyken F8 ile yeniden seçim yapılmalıdır. Eski profillerdeki referansı
+bu yöntemle yeniden seçin. Okuyucu her seferinde güncel ekran bağlamını alır.
+
+Tam ekran DirectX görüntüsünün standart Windows GDI ile yakalanması oyuna ve
+ekran moduna bağlıdır; KAROS üzerinde doğrulanmamıştır. RGB değerleri oyun
+karesini yansıtmıyorsa pencereli/kenarlıksız modda tekrar test edin. Siyah bir
+piksel tek başına hata sayılmaz. Animasyon, imleç/hover, ışıklandırma ve gamma
+aynı görünen bölgede RGB değişimine yol açabilir; karşılaştırma tam RGB eşliğidir.

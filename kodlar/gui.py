@@ -24,7 +24,7 @@ from .models import (
     key_config_to_dict,
     new_id,
 )
-from .platform_win import flush_desktop, get_pixel_color_win32
+from .platform_win import flush_desktop, get_pixel_color_win32, physical_cursor_position, screen_bounds, foreground_is_ours, foreground_description
 from .profile_store import load_profiles, reset_profiles, save_profiles
 from .sequences import (
     MAX_GROUP_DEPTH,
@@ -66,6 +66,7 @@ class ClickerApp:
         self._locked_widget_states = {}
         self._locked_menu_states = {}
         self._capture_overlay = None
+        self._pending_pixel_pick = None
         
         theme = DEFAULT_THEME
         self.bg_color = theme.background
@@ -272,6 +273,8 @@ class ClickerApp:
         self._queue_job = self.root.after(100, self.process_queue)
         self.root.bind_all("<Button-1>", self.unfocus_entries)
         self.update_running_ui(self.clicker.enabled_event.is_set())
+        self.root.bind("<FocusIn>", lambda event: self.root.after_idle(self.draw_markers) if event.widget is self.root else None)
+        self.root.bind("<FocusOut>", lambda event: self.root.after(50, self.draw_markers) if event.widget is self.root else None)
         install = Path(__file__).resolve().parent.parent
         if os.name == "nt" and not (install / ".git").exists():
             threading.Thread(target=self.check_for_update, name="update-check", daemon=True).start()
@@ -327,7 +330,7 @@ class ClickerApp:
             self.enqueue_log(f"Güncelleme kontrolü tamamlanamadı: {error}")
 
     def apply_pending_update(self) -> None:
-        if self._update_stage is None or self.clicker.is_running or self.capturing_target is not None:
+        if self._update_stage is None or self.clicker.is_running or self.capturing_target is not None or self._pending_pixel_pick is not None:
             return
         stage = self._update_stage
         self._update_stage = None
@@ -342,6 +345,7 @@ class ClickerApp:
 
     def shutdown(self) -> None:
         self._shutting_down = True
+        self.cancel_pixel_pick()
         if self._queue_job is not None:
             try:
                 self.root.after_cancel(self._queue_job)
@@ -453,6 +457,8 @@ class ClickerApp:
             self.clicker.log("Piksel okunamadı; önceki hedef korundu.")
 
     def draw_markers(self):
+        if self._shutting_down:
+            return
         # Eski işaretçileri sil
         for m in self.markers.values():
             try:
@@ -462,7 +468,7 @@ class ClickerApp:
         self.markers = {}
         
         # Editing markers must never cover the game while macros are running.
-        if self.clicker.is_running:
+        if self.clicker.is_running or self._pending_pixel_pick is not None or not foreground_is_ours():
             return
 
         trans_color = "#000001"
@@ -584,15 +590,31 @@ class ClickerApp:
                     self.update_group_states()
                 elif msg_type == "capture":
                     self.handle_captured_key(data)
+                elif msg_type == "pixel_pick_cancel":
+                    if self._pending_pixel_pick is data:
+                        self.cancel_pixel_pick()
+                        self.draw_markers()
+                elif msg_type == "pixel_pick_result":
+                    pending, x, y, color, bounds = data
+                    if self._pending_pixel_pick is pending:
+                        self.cancel_pixel_pick()
+                        config, button, coord_lbl, preview = pending
+                        if not self.clicker.is_running and any(config is item for item in self.key_configs):
+                            if color:
+                                self.log_queue.put(("pixel_capture", (config, x, y, color, button, coord_lbl, preview, bounds)))
+                                self.clicker.log(f"F8 fiziksel piksel ({x}, {y}); ekran sınırları: {bounds}")
+                            else:
+                                self.clicker.log("Oyun pikseli okunamadı veya ekran modu değişti; önceki hedef korundu.")
                 elif msg_type in {"pixel_capture", "click_capture"} and self.clicker.is_running:
                     self.log_queue.task_done()
                     processed += 1
                     continue
                 elif msg_type == "pixel_capture":
-                    config, x, y, color, btn, lbl, preview = data
+                    config, x, y, color, btn, lbl, preview = data[:7]
                     config.pixel_x = x
                     config.pixel_y = y
                     config.target_color = color
+                    config.pixel_screen_bounds = data[7] if len(data) > 7 else screen_bounds()
                     config.invert_color = False
                     self.save_current_configs_to_profiles(update_workers=False)
                     
@@ -840,6 +862,7 @@ class ClickerApp:
 
     @editable_only
     def start_key_capture(self, target_type: str, config: KeyConfig | None = None, button_widget: tk.Button | None = None):
+        self.cancel_pixel_pick()
         if self.capturing_target is not None:
             _, _, prev_btn = self.capturing_target
             if prev_btn and prev_btn.winfo_exists():
@@ -1431,28 +1454,54 @@ class ClickerApp:
             "loc_btn": loc_btn
         }
 
+    def cancel_pixel_pick(self) -> None:
+        pending = self._pending_pixel_pick
+        self._pending_pixel_pick = None
+        self.clicker.pixel_capture_callback = None
+        if pending is not None and pending[1].winfo_exists():
+            pending[1].configure(text="Piksel Seç", bg=self.input_bg, fg=self.text_primary)
+
     @editable_only
     def start_pixel_capture(self, config: KeyConfig, button: tk.Button, coord_lbl: tk.Label, color_preview: tk.Canvas):
-        button.configure(text="Tıklayın...", bg=self.accent_color, fg="white")
-        
-        # Tam ekran şeffaf overlay penceresi oluştur
-        overlay = tk.Toplevel(self.root)
-        self._capture_overlay = overlay
-        overlay.overrideredirect(True)
-        overlay.attributes("-topmost", True)
-        
-        # Tüm ekranı kapla
-        screen_w = self.root.winfo_screenwidth()
-        screen_h = self.root.winfo_screenheight()
-        overlay.geometry(f"{screen_w}x{screen_h}+0+0")
-        
-        # Windows'ta yarı şeffaf yapmak için alpha = 0.01
-        overlay.attributes("-alpha", 0.01)
-        overlay.configure(cursor="crosshair")
-        
-        # Tıklama ve iptal tuşlarını bağla
-        overlay.bind("<Button-1>", lambda event: self.on_overlay_clicked(event, overlay, config, button, coord_lbl, color_preview))
-        overlay.bind("<Escape>", lambda event: self.cancel_overlay_capture(overlay, button))
+        self.cancel_pixel_pick()
+        previous = getattr(self, "capturing_target", None)
+        if previous is not None:
+            kind, old_config, old_button = previous
+            if old_button is not None and old_button.winfo_exists():
+                label = self.clicker.app_config.panic_key if kind == "panic" else old_config.key
+                old_button.configure(text=label.upper(), bg=self.input_bg, fg=self.text_primary)
+        self.capturing_target = None
+        self.clicker.capturing_callback = None
+        overlay = getattr(self, "_capture_overlay", None)
+        if overlay is not None and overlay.winfo_exists():
+            overlay.destroy()
+        self._capture_overlay = None
+        pending = (config, button, coord_lbl, color_preview)
+        self._pending_pixel_pick = pending
+        for marker in self.markers.values():
+            marker.withdraw()
+        button.configure(text="F8 ile seç", bg=self.accent_color, fg="white")
+        self.clicker.pixel_capture_callback = lambda key: self.on_pixel_pick_key(key, pending)
+        self.clicker.log("Oyuna dönün, imleci izlenecek noktaya getirin ve F8'e basın. ESC: iptal.")
+
+    def on_pixel_pick_key(self, key: str, pending) -> None:
+        # Runs in the input hook: no Tk call and no overlay/focus change.
+        if key == "esc":
+            self.log_queue.put(("pixel_pick_cancel", pending))
+            return
+        point, bounds, color = None, None, ""
+        try:
+            point = physical_cursor_position()
+            self.enqueue_log(f"F8 seçim ortamı: {foreground_description()}")
+            bounds = screen_bounds()
+            color = get_pixel_color_win32(*point) if point is not None else ""
+            if bounds != screen_bounds():
+                color = ""  # The display mode changed during selection.
+        except Exception as error:
+            self.enqueue_log(f"Piksel seçimi başarısız: {error}")
+            color = ""
+        x, y = point if point is not None else (0, 0)
+        self.log_queue.put(("pixel_pick_result", (pending, x, y, color, bounds)))
 
     def sample_uncovered_pixel(self, x: int, y: int, overlay=None) -> str:
         if overlay is not None:
@@ -1489,6 +1538,7 @@ class ClickerApp:
 
     @editable_only
     def start_click_capture(self, config: KeyConfig, button: tk.Button, loc_lbl: tk.Label):
+        self.cancel_pixel_pick()
         button.configure(text="Tıklayın...", bg=self.accent_color, fg="white")
         
         overlay = tk.Toplevel(self.root)
@@ -1665,6 +1715,7 @@ class ClickerApp:
 
         self.clicker.capturing_callback = None
         self.capturing_target = None
+        self.cancel_pixel_pick()
         self.panic_btn.configure(text=self.clicker.app_config.panic_key.upper())
         overlay = self._capture_overlay
         if overlay is not None and overlay.winfo_exists():

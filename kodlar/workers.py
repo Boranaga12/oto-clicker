@@ -10,7 +10,7 @@ from pynput import keyboard
 from pynput.mouse import Button
 
 from .models import KeyConfig, LEFT_MOUSE_NAMES, clamp_click_interval
-from .platform_win import PixelSampler, is_color_close
+from .platform_win import PixelSampler, is_color_close, screen_bounds, foreground_description
 
 
 RIGHT_MOUSE_NAMES = {"sağ klik", "sag klik", "right click", "sağ tık"}
@@ -138,7 +138,7 @@ class KeyClickerWorker(StoppableWorker):
                             self.clicker.mouse.release(mouse_button)
                     self.clicker.log_activity(
                         self.config.id_token,
-                        f"Fare tetiklendi: {self.config.key.upper()}",
+                        f"Fare tetiklendi: {self.config.key.upper()} [{self.config.id_token[:6]}]",
                     )
                     return True
 
@@ -157,7 +157,7 @@ class KeyClickerWorker(StoppableWorker):
                     self.keyboard_controller.release(key)
             self.clicker.log_activity(
                 self.config.id_token,
-                f"Tuş basıldı: {self.config.key.upper()}",
+                f"Tuş basıldı: {self.config.key.upper()} [{self.config.id_token[:6]}]",
             )
             return True
         except Exception as exc:
@@ -219,13 +219,27 @@ class KeyClickerWorker(StoppableWorker):
 
     def _run_screen_mode(self, pixels: PixelSampler) -> None:
         # Repeat while the condition holds; never queue presses after recovery.
+        last_report = None
         while not self.stop_event.is_set():
             if not self._can_run() or not self.config.has_pixel_target:
                 self.wait(0.1)
                 continue
 
-            target = (self.config.pixel_x, self.config.pixel_y, self.config.target_color)
+            target = (self.config.pixel_x, self.config.pixel_y, self.config.target_color, self.config.pixel_screen_bounds)
+            bounds = screen_bounds()
+            if target[3] is not None and bounds is not None and target[3] != bounds:
+                self.clicker.log_activity(self.config.id_token + ":display", "Ekran çözünürlüğü değişti; izleme duraklatıldı. Oyun açıkken F8 ile pikseli yeniden seçin.")
+                self.wait(0.2)
+                continue
             color = pixels.get(target[0], target[1])
+            report = (target, color, bounds)
+            if report != last_report:
+                status = "eşleşiyor" if color and is_color_close(color, target[2], threshold=0) else "farklı" if color else "okunamadı"
+                self.clicker.log_activity(
+                    self.config.id_token + ":pixel",
+                    f"İzleme {self.config.key.upper()} [{self.config.id_token[:6]}] ({target[0]}, {target[1]}): referans={target[2]}, okunan={color or 'yok'}, {status}; ekran={bounds}; {foreground_description()}",
+                )
+                last_report = report
             if not color:
                 self.wait(0.1)
                 continue
@@ -239,8 +253,11 @@ class KeyClickerWorker(StoppableWorker):
             )
 
             def color_returned() -> bool:
-                if target != (self.config.pixel_x, self.config.pixel_y, self.config.target_color):
+                if target != (self.config.pixel_x, self.config.pixel_y, self.config.target_color, self.config.pixel_screen_bounds):
                     return True  # A new selection cancels the old pending press.
+                current_bounds = screen_bounds()
+                if target[3] is not None and current_bounds is not None and current_bounds != target[3]:
+                    return True
                 current = pixels.get(target[0], target[1])
                 return not current or is_color_close(current, target[2], threshold=0)
 
@@ -274,10 +291,18 @@ class KeyClickerWorker(StoppableWorker):
             with PixelSampler() as pixels:
                 self._run_screen_mode(pixels)
         else:
+            mode_reported = False
             while not self.stop_event.is_set():
                 if not self._can_run():
+                    mode_reported = False
                     self.wait(0.05)
                     continue
+                if not mode_reported:
+                    self.clicker.log_activity(
+                        self.config.id_token + ":mode",
+                        f"Zamanlayıcı {self.config.key.upper()} [{self.config.id_token[:6]}]: izleme kapalı, aralık={self.config.interval_seconds:.3f}, kayıtlı Aktif={self.config.enabled}",
+                    )
+                    mode_reported = True
                 if self.press_key():
                     self.execute_chain_actions()
                 delay = clamp_click_interval(self.config.key, self.config.interval_seconds) + random.uniform(

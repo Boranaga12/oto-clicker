@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import ctypes
 import os
-from types import TracebackType
+from ctypes import wintypes
 
 
 if os.name == "nt":
@@ -63,49 +63,54 @@ def is_color_close(first: str, second: str, threshold: int = 25) -> bool:
 
 
 class PixelSampler:
-    """Bir worker boyunca masaüstü DC'sini tekrar kullanarak piksel okur."""
-
-    def __init__(self) -> None:
-        self._hdc: int | None = None
+    """Read the current desktop; never reuse a DC across a display-mode switch."""
 
     def __enter__(self) -> "PixelSampler":
-        if os.name == "nt":
-            self._hdc = _user32.GetDC(None)
         return self
 
-    def __exit__(
-        self,
-        exc_type: type[BaseException] | None,
-        exc: BaseException | None,
-        traceback: TracebackType | None,
-    ) -> None:
+    def __exit__(self, exc_type, exc, traceback) -> None:
         self.close()
 
     def close(self) -> None:
-        if self._hdc and os.name == "nt":
-            _user32.ReleaseDC(None, self._hdc)
-        self._hdc = None
+        pass
 
     def get(self, x: int, y: int) -> str:
         if os.name != "nt":
             return ""
-
-        owns_dc = self._hdc is None
-        hdc = self._hdc or _user32.GetDC(None)
+        bounds = screen_bounds()
+        if bounds:
+            left, top, width, height = bounds
+            if not (left <= x < left + width and top <= y < top + height):
+                return ""
+        hdc = _user32.GetDC(None)
         if not hdc:
             return ""
         try:
             color = _gdi32.GetPixel(hdc, int(x), int(y))
         finally:
-            if owns_dc and hdc:
-                _user32.ReleaseDC(None, hdc)
-
+            _user32.ReleaseDC(None, hdc)
         if color == 0xFFFFFFFF:
             return ""
-        red = color & 0xFF
-        green = (color >> 8) & 0xFF
-        blue = (color >> 16) & 0xFF
-        return f"#{red:02x}{green:02x}{blue:02x}"
+        return f"#{color & 0xff:02x}{(color >> 8) & 0xff:02x}{(color >> 16) & 0xff:02x}"
+
+
+def screen_bounds() -> tuple[int, int, int, int] | None:
+    if os.name != "nt":
+        return None
+    values = tuple(_user32.GetSystemMetrics(index) for index in (76, 77, 78, 79))
+    return values if values[2] > 0 and values[3] > 0 else None
+
+
+def physical_cursor_position() -> tuple[int, int] | None:
+    if os.name != "nt":
+        return None
+    point = wintypes.POINT()
+    reader = getattr(_user32, "GetPhysicalCursorPos", _user32.GetCursorPos)
+    reader.argtypes = [ctypes.POINTER(wintypes.POINT)]
+    reader.restype = wintypes.BOOL
+    if not reader(ctypes.byref(point)):
+        return None
+    return point.x, point.y
 
 
 def get_pixel_color_win32(x: int, y: int) -> str:
@@ -116,12 +121,22 @@ def enable_dpi_awareness() -> None:
     if os.name != "nt":
         return
     try:
-        ctypes.windll.shcore.SetProcessDpiAwareness(2)
+        setter = _user32.SetProcessDpiAwarenessContext
+        setter.argtypes = [ctypes.c_void_p]
+        setter.restype = wintypes.BOOL
+        if setter(ctypes.c_void_p(-4)):  # DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2
+            return
     except (AttributeError, OSError):
-        try:
-            ctypes.windll.user32.SetProcessDPIAware()
-        except (AttributeError, OSError):
-            pass
+        pass
+    try:
+        if ctypes.windll.shcore.SetProcessDpiAwareness(2) >= 0:
+            return
+    except (AttributeError, OSError):
+        pass
+    try:
+        _user32.SetProcessDPIAware()
+    except (AttributeError, OSError):
+        pass
 
 
 def set_application_identity() -> None:
@@ -143,3 +158,42 @@ def flush_desktop() -> None:
             ctypes.windll.dwmapi.DwmFlush()
         except (AttributeError, OSError):
             pass
+
+
+def foreground_is_ours() -> bool:
+    """Never place editing overlays over a foreground fullscreen game."""
+    if os.name != "nt":
+        return True
+    _user32.GetForegroundWindow.restype = ctypes.c_void_p
+    _user32.GetWindowThreadProcessId.argtypes = [ctypes.c_void_p, ctypes.POINTER(wintypes.DWORD)]
+    handle = _user32.GetForegroundWindow()
+    if not handle:
+        return False
+    pid = wintypes.DWORD()
+    _user32.GetWindowThreadProcessId(handle, ctypes.byref(pid))
+    return pid.value == os.getpid()
+
+
+def foreground_description() -> str:
+    if os.name != "nt":
+        return "Windows dışında"
+    _user32.GetForegroundWindow.restype = ctypes.c_void_p
+    handle = _user32.GetForegroundWindow()
+    if not handle:
+        return "ön pencere yok"
+    _user32.GetWindowTextW.argtypes = [ctypes.c_void_p, wintypes.LPWSTR, ctypes.c_int]
+    _user32.GetWindowRect.argtypes = [ctypes.c_void_p, ctypes.POINTER(wintypes.RECT)]
+    title = ctypes.create_unicode_buffer(256)
+    _user32.GetWindowTextW(handle, title, len(title))
+    rect = wintypes.RECT()
+    area = None
+    if _user32.GetWindowRect(handle, ctypes.byref(rect)):
+        area = (rect.left, rect.top, rect.right - rect.left, rect.bottom - rect.top)
+    dpi = None
+    try:
+        _user32.GetDpiForWindow.argtypes = [ctypes.c_void_p]
+        _user32.GetDpiForWindow.restype = wintypes.UINT
+        dpi = _user32.GetDpiForWindow(handle)
+    except AttributeError:
+        pass
+    return f"pencere={title.value}, alan={area}, DPI={dpi}"

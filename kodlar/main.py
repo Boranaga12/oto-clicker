@@ -4,6 +4,11 @@ import logging
 import sys
 import threading
 import traceback
+from .platform_win import SingleInstanceLock, enable_dpi_awareness, set_application_identity
+
+# Set the coordinate system before GUI/input libraries can establish a DPI mode.
+enable_dpi_awareness()
+
 import tkinter as tk
 from logging.handlers import RotatingFileHandler
 from tkinter import messagebox
@@ -12,7 +17,6 @@ from .app_paths import writable_data_file
 from .config import load_config
 from .engine import RandomizedAutoClicker
 from .gui import ClickerApp
-from .platform_win import SingleInstanceLock, enable_dpi_awareness, set_application_identity
 
 
 LOG_FILE = writable_data_file("app.log", migrate_legacy=False)
@@ -83,7 +87,6 @@ def run_application() -> None:
 def main() -> None:
     configure_logging()
     set_application_identity()
-    enable_dpi_awareness()
     instance_lock = SingleInstanceLock()
     if not instance_lock.acquire():
         root = tk.Tk()

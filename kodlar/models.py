@@ -47,6 +47,7 @@ class KeyConfig:
     pixel_x: int = 0
     pixel_y: int = 0
     target_color: str = ""
+    pixel_screen_bounds: tuple[int, int, int, int] | None = None
     invert_color: bool = False
     click_x: int = -1
     click_y: int = -1
@@ -63,7 +64,7 @@ class KeyConfig:
 
     @property
     def has_pixel_target(self) -> bool:
-        return self.pixel_x >= 0 and self.pixel_y >= 0 and bool(self.target_color)
+        return bool(self.target_color)
 
 
 def key_config_from_dict(item: Mapping[str, Any]) -> KeyConfig:
@@ -94,6 +95,12 @@ def key_config_from_dict(item: Mapping[str, Any]) -> KeyConfig:
         if isinstance(action, Mapping)
     ]
 
+    bounds = item.get("pixel_screen_bounds")
+    if isinstance(bounds, (list, tuple)) and len(bounds) == 4 and all(type(value) is int for value in bounds) and bounds[2] > 0 and bounds[3] > 0:
+        bounds = tuple(bounds)
+    else:
+        bounds = None
+
     return KeyConfig(
         key=str(item.get("key", "sol klik")),
         interval_seconds=_as_float(item.get("interval_seconds"), 1.0, 0.001),
@@ -103,6 +110,7 @@ def key_config_from_dict(item: Mapping[str, Any]) -> KeyConfig:
         pixel_x=_as_int(item.get("pixel_x"), 0),
         pixel_y=_as_int(item.get("pixel_y"), 0),
         target_color=str(item.get("target_color", "")),
+        pixel_screen_bounds=bounds,
         invert_color=False,  # Legacy flag: monitoring always reacts to a different color.
         click_x=_as_int(item.get("click_x"), -1),
         click_y=_as_int(item.get("click_y"), -1),

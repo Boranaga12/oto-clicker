@@ -237,6 +237,7 @@ class CaptureTests(unittest.TestCase):
         app = ClickerApp.__new__(ClickerApp)
         marker = Mock()
         app.markers = {'screen': marker}
+        app._shutting_down = False
         app.clicker = Mock(is_running=True)
         app.draw_markers()
         marker.destroy.assert_called_once()
