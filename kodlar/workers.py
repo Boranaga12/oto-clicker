@@ -4,6 +4,7 @@ import random
 import threading
 import time
 from enum import Enum
+from contextlib import nullcontext
 from typing import Any, Protocol
 from collections.abc import Callable
 
@@ -209,22 +210,27 @@ class KeyClickerWorker(StoppableWorker):
                 if not self.config.has_click_target:
                     break
 
-                if not reference:
-                    reference = pixels.get(self.config.click_x, self.config.click_y)
-                    if not reference:
-                        self.wait(0.2)
+                gate = getattr(self.clicker, "writing_gate", None)
+                admission = gate.input(lambda: not self._can_run()) if gate is not None else nullcontext(True)
+                changed = False
+                with admission as admitted:
+                    if not admitted:
                         continue
-
-                current = pixels.get(self.config.click_x, self.config.click_y)
-                if current and not is_color_close(current, reference):
-                    self.clicker.extend_mute(20.0)
+                    if not reference:
+                        reference = pixels.get(self.config.click_x, self.config.click_y)
+                    if reference:
+                        current = pixels.get(self.config.click_x, self.config.click_y)
+                        changed = bool(current and not is_color_close(current, reference))
+                        if changed:
+                            self.clicker.extend_mute(20.0)
+                if changed:
                     self.clicker.log(
                         f"{self.config.key.upper()} konumunda renk değişti; "
                         "fare dışı makrolar 20 saniye susturuldu."
                     )
                     if self.wait(20.0):
                         break
-                    reference = pixels.get(self.config.click_x, self.config.click_y)
+                    reference = ""
                 else:
                     self.wait(0.1)
 
@@ -400,6 +406,16 @@ class KeyClickerWorker(StoppableWorker):
             self.color_thread.join(timeout=0.5)
 
     def execute_chain_actions(self) -> None:
+        if not self.config.action_chain:
+            return
+        gate = getattr(self.clicker, "writing_gate", None)
+        cancelled = lambda: self.stop_event.is_set() or not self.clicker.enabled_event.is_set()
+        admission = gate.input(cancelled) if gate is not None else nullcontext(True)
+        with admission as admitted:
+            if admitted:
+                self._execute_chain_actions()
+
+    def _execute_chain_actions(self) -> None:
         if not self.config.action_chain:
             return
 
