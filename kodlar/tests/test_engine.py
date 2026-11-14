@@ -9,6 +9,7 @@ from pynput.mouse import Button
 from kodlar.config import AppConfig
 from kodlar.engine import RandomizedAutoClicker
 from kodlar.models import KeyConfig
+from kodlar.sequences import SequenceGroup, SequenceItem
 
 
 class DummyWorker:
@@ -45,6 +46,30 @@ class EngineTests(unittest.TestCase):
 
     def tearDown(self) -> None:
         self.engine.stop()
+
+    def test_global_start_launches_all_root_groups_and_resets_grouped_macros(self):
+        first = KeyConfig('a', 1, 0)
+        later = KeyConfig('b', 1, 0)
+        independent = KeyConfig('c', 1, 0)
+        nested = SequenceGroup(children=[SequenceItem(kind='macro', macro_id=later.id_token)])
+        root = SequenceGroup(children=[
+            SequenceItem(kind='macro', macro_id=first.id_token),
+            SequenceItem(kind='group', group=nested, delay_seconds=1),
+        ])
+        other = SequenceGroup(children=[SequenceItem(kind='macro', macro_id='other')])
+        self.engine.key_configs = [first, later, independent]
+        self.engine.sequence_groups = [root, other]
+        with patch.object(self.engine.sequence_runner, 'start_group') as start:
+            self.engine.set_enabled(True)
+            self.engine.set_enabled(True)
+            self.assertEqual([call.args[0] for call in start.call_args_list],
+                             [root.id_token, other.id_token])
+            self.assertFalse(first.enabled)
+            self.assertFalse(later.enabled)
+            self.assertTrue(independent.enabled)
+            self.engine.set_enabled(False)
+            self.engine.set_enabled(True)
+            self.assertEqual(start.call_count, 4)
 
     def test_state_changes_are_published(self) -> None:
         states: list[bool] = []

@@ -23,7 +23,7 @@ tuşu sistemi başlatıp durdurur.
 - Birden çok makro profili
 - Klavye ve fare tetikleme
 - Sabit fare hedefi seçimi
-- Piksel rengi değiştiğinde tek seferlik tetikleme
+- Piksel rengi farklı kaldığı sürece belirtilen aralıkla tetikleme; her basış öncesi renk kontrolü
 - Rastgele ek gecikme
 - Global başlatma/durdurma kısayolu
 - Arayüzden tek tıkla başlatma/durdurma
@@ -39,7 +39,7 @@ tuşu sistemi başlatıp durdurur.
 1. `Yeni Grup Ekle` ile bir grup oluşturun.
 2. Grup üzerindeki `İçine Tuş` ve `İçine Grup` düğmeleriyle adımları ekleyin.
 3. Adımlar arasındaki `sn bekle` alanına geçiş süresini yazın.
-4. `Grubu Başlat`a basın veya ilk adımı aktif edin.
+4. Ana `BAŞLAT` düğmesine basın; tüm ana gruplar otomatik başlar.
 
 Adımlar yukarıdan aşağıya etkinleşir. Alt grup tek bir adım gibi çalışır ve
 kendi içindeki sıra tamamlandıktan sonra ana grup bir sonraki adıma geçer.

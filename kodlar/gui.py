@@ -787,6 +787,7 @@ class ClickerApp:
                 True,
                 reason=f"{group.name} başlatıldığı için sistem açıldı.",
             )
+            return  # Enabling the system already starts all root groups.
         if not self.clicker.start_sequence(group.id_token):
             self.clicker.log(f"{group.name} zaten çalışıyor veya başlatılamadı.")
 

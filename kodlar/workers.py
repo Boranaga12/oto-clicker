@@ -4,6 +4,7 @@ import random
 import threading
 import time
 from typing import Any, Protocol
+from collections.abc import Callable
 
 from pynput import keyboard
 from pynput.mouse import Button
@@ -91,16 +92,17 @@ class KeyClickerWorker(StoppableWorker):
             return Button.x2
         return None
 
-    def press_key(self) -> None:
+    def press_key(self, before_press: Callable[[], bool] | None = None) -> bool:
         key_name = self.config.key.strip().lower()
         if not key_name:
-            return
+            return False
 
         try:
             mouse_button = self._mouse_button(key_name)
             with self.clicker.input_lock:
+                if not self._can_run() or (before_press is not None and not before_press()):
+                    return False
                 if mouse_button is not None:
-                    self.clicker.mark_injected_mouse(mouse_button)
                     if self.config.has_click_target:
                         original = self.clicker.mouse.position
                         try:
@@ -109,8 +111,12 @@ class KeyClickerWorker(StoppableWorker):
                                 self.config.click_y,
                             )
                             # Let the target process observe the cursor move before pressing.
-                            if self.wait(0.03) or not self._can_run():
-                                return
+                            if (
+                                self.wait(0.03) or not self._can_run()
+                                or (before_press is not None and not before_press())
+                            ):
+                                return False
+                            self.clicker.mark_injected_mouse(mouse_button)
                             self.clicker.mouse.press(mouse_button)
                             try:
                                 self.wait(random.uniform(0.06, 0.08))
@@ -119,6 +125,7 @@ class KeyClickerWorker(StoppableWorker):
                         finally:
                             self.clicker.mouse.position = original
                     else:
+                        self.clicker.mark_injected_mouse(mouse_button)
                         self.clicker.mouse.press(mouse_button)
                         try:
                             self.wait(random.uniform(0.06, 0.08))
@@ -128,7 +135,7 @@ class KeyClickerWorker(StoppableWorker):
                         self.config.id_token,
                         f"Fare tetiklendi: {self.config.key.upper()}",
                     )
-                    return
+                    return True
 
                 if hasattr(keyboard.Key, key_name):
                     key: Any = getattr(keyboard.Key, key_name)
@@ -147,11 +154,14 @@ class KeyClickerWorker(StoppableWorker):
                 self.config.id_token,
                 f"Tuş basıldı: {self.config.key.upper()}",
             )
+            return True
         except Exception as exc:
             self.clicker.log_activity(
                 f"{self.config.id_token}:error",
                 f"Tetikleme hatası ({self.config.key}): {exc}",
             )
+
+        return False
 
     def monitor_color_loop(self) -> None:
         reference = ""
@@ -184,7 +194,7 @@ class KeyClickerWorker(StoppableWorker):
                     self.wait(0.1)
 
     def _can_run(self) -> bool:
-        if not self.clicker.enabled_event.is_set() or not self.config.enabled:
+        if self.stop_event.is_set() or not self.clicker.enabled_event.is_set() or not self.config.enabled:
             return False
         if not self.is_mouse and time.monotonic() < self.clicker.mute_all_keys_until:
             return False
@@ -203,19 +213,9 @@ class KeyClickerWorker(StoppableWorker):
         return False
 
     def _run_screen_mode(self, pixels: PixelSampler) -> None:
-        # Her renk-yokluğu döneminde yalnızca bir kez tetikle.
-        triggered = False
-        target = None
+        # Repeat while the condition holds; never queue presses after recovery.
         while not self.stop_event.is_set():
-            current_target = (
-                self.config.pixel_x, self.config.pixel_y,
-                self.config.target_color, self.config.invert_color,
-            )
-            if current_target != target:
-                target = current_target
-                triggered = False
             if not self._can_run() or not self.config.has_pixel_target:
-                triggered = False
                 self.wait(0.1)
                 continue
 
@@ -227,10 +227,6 @@ class KeyClickerWorker(StoppableWorker):
             matches = is_color_close(color, self.config.target_color)
             should_trigger = matches if self.config.invert_color else not matches
             if not should_trigger:
-                triggered = False
-                self.wait(0.05)
-                continue
-            if triggered:
                 self.wait(0.05)
                 continue
 
@@ -250,9 +246,8 @@ class KeyClickerWorker(StoppableWorker):
                 and self._can_run()
                 and not color_returned()
             ):
-                self.press_key()
-                self.execute_chain_actions()
-                triggered = True
+                if self.press_key(before_press=lambda: not color_returned()):
+                    self.execute_chain_actions()
 
     def run(self) -> None:
         if self.wait(random.uniform(0.05, 0.2)):
@@ -280,8 +275,8 @@ class KeyClickerWorker(StoppableWorker):
                 if not self._can_run():
                     self.wait(0.05)
                     continue
-                self.press_key()
-                self.execute_chain_actions()
+                if self.press_key():
+                    self.execute_chain_actions()
                 delay = self.config.interval_seconds + random.uniform(
                     0.0, self.config.random_seconds
                 )

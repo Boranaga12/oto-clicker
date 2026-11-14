@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import threading
+import time
 import unittest
 from unittest.mock import Mock, patch
 
@@ -62,13 +63,44 @@ class WorkerTests(unittest.TestCase):
         worker._run_screen_mode(pixels)
         return worker
 
-    def test_color_change_fires_once_until_reference_returns(self):
-        worker = self.run_colors([
-            '#000000', '#000000',  # change and final check -> fire
-            '#000000', '#ffffff',  # still changed, then rearm
-            '#000000', '#000000',  # next change -> fire
-        ])
-        self.assertEqual(worker.press_key.call_count, 2)
+    def test_different_color_repeats_without_reference_return(self):
+        worker = self.run_colors(['#000000'] * 6)
+        self.assertEqual(worker.press_key.call_count, 3)
+
+    def test_repeated_presses_respect_interval(self):
+        worker, engine = self.worker(screen_mode=True, target_color='#ffffff')
+        worker.config.interval_seconds = 0.02
+        pixels = Mock()
+        pixels.get.return_value = '#000000'
+        pressed = []
+
+        def press(before_press):
+            self.assertTrue(before_press())
+            pressed.append(time.monotonic())
+            if len(pressed) == 3:
+                worker.stop()
+            return True
+
+        worker.press_key = press
+        worker._run_screen_mode(pixels)
+        self.assertEqual(len(pressed), 3)
+        self.assertTrue(all(b - a >= 0.019 for a, b in zip(pressed, pressed[1:])))
+
+    def test_recovery_during_cursor_settle_cancels_mouse_down(self):
+        worker, engine = self.worker(click_x=100, click_y=200)
+        engine.mouse.position = (10, 20)
+        worker.wait = Mock(return_value=False)
+        allowed = Mock(side_effect=[True, False])
+        self.assertFalse(worker.press_key(before_press=allowed))
+        engine.mouse.press.assert_not_called()
+        engine.mouse.release.assert_not_called()
+        self.assertEqual(engine.mouse.position, (10, 20))
+
+    def test_recovery_while_waiting_for_input_lock_cancels_press(self):
+        worker, engine = self.worker()
+        allowed = Mock(return_value=False)
+        self.assertFalse(worker.press_key(before_press=allowed))
+        engine.mouse.press.assert_not_called()
 
     def test_reference_return_at_deadline_cancels_click(self):
         worker = self.run_colors(['#000000', '#ffffff'])

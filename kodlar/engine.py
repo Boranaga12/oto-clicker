@@ -14,7 +14,7 @@ from .config import AppConfig
 from .models import KeyConfig, key_config_from_dict
 from .profile_store import DEFAULT_PROFILE, load_profiles
 from .sequence_runner import SequenceRunner
-from .sequences import SequenceGroup, sequence_groups_from_list
+from .sequences import SequenceGroup, grouped_macro_ids, sequence_groups_from_list
 from .workers import KeyClickerWorker
 
 LOGGER = logging.getLogger(__name__)
@@ -169,11 +169,21 @@ class RandomizedAutoClicker:
             previous = self.manual_enabled
             self.manual_enabled = active
             if active:
+                if not previous:
+                    # Each run starts grouped macros in order, including saved active ones.
+                    grouped_ids = grouped_macro_ids(self.sequence_groups)
+                    for config in self.key_configs:
+                        if config.id_token in grouped_ids:
+                            config.enabled = False
                 self.enabled_event.set()
             else:
                 self.enabled_event.clear()
         if previous and not active:
             self.sequence_runner.cancel()
+        if not previous and active:
+            for group in self.sequence_groups:
+                self.sequence_runner.start_group(group.id_token)
+            self._request_refresh()
         if previous != active:
             self._publish_state(active, reason)
         elif reason:
