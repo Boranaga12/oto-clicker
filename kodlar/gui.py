@@ -4,11 +4,15 @@ import queue
 import os
 from pathlib import Path
 import time
+import threading
 import tkinter as tk
 from tkinter import messagebox, simpledialog
 
 from pynput.mouse import Button
 
+from . import __version__
+from .app_paths import data_directory
+from .updater import prepare_update, schedule_install
 from .config import AppConfig, save_config
 from .engine import RandomizedAutoClicker
 from .models import (
@@ -45,6 +49,7 @@ class ClickerApp:
         self._marker_save_job: str | None = None
         self._queue_job: str | None = None
         self._shutting_down = False
+        self._update_stage: Path | None = None
         
         theme = DEFAULT_THEME
         self.bg_color = theme.background
@@ -154,26 +159,20 @@ class ClickerApp:
         )
         self.profile_menu.pack(side="left", padx=5)
         
-        self.delete_prof_btn = tk.Button(
-            self.profile_frame, text="Sil", font=("Segoe UI", 8, "bold"),
-            bg=self.danger_color, fg="white", bd=0, activebackground=self.danger_hover,
-            activeforeground="white", padx=8, pady=2, command=self.delete_profile
+        profile_actions = tk.Menubutton(
+            self.profile_frame, text="⋯", font=("Segoe UI", 12, "bold"),
+            bg=self.card_color, fg=self.text_secondary, bd=0,
+            activebackground=self.input_bg, activeforeground=self.text_primary,
+            cursor="hand2", padx=8,
         )
-        self.delete_prof_btn.pack(side="right", padx=2)
-        
-        self.new_prof_btn = tk.Button(
-            self.profile_frame, text="Yeni", font=("Segoe UI", 8, "bold"),
-            bg=self.accent_color, fg="white", bd=0, activebackground=self.accent_hover,
-            activeforeground="white", padx=8, pady=2, command=self.create_profile
-        )
-        self.new_prof_btn.pack(side="right", padx=2)
-        
-        tk.Button(
-            self.profile_frame, text="Sıfırla", font=("Segoe UI", 8),
-            bg=self.input_bg, fg=self.text_secondary, bd=0,
-            activebackground=self.border_color, activeforeground="white",
-            padx=8, pady=2, command=self.reset_all_profiles,
-        ).pack(side="right", padx=2)
+        profile_actions.pack(side="right")
+        actions = tk.Menu(profile_actions, tearoff=False, bg=self.card_color,
+                          fg=self.text_primary, activebackground=self.accent_color)
+        actions.add_command(label="Yeni profil", command=self.create_profile)
+        actions.add_command(label="Profili sil", command=self.delete_profile)
+        actions.add_separator()
+        actions.add_command(label="Tümünü sıfırla", command=self.reset_all_profiles)
+        profile_actions.configure(menu=actions)
 
         # 3. Tuş Atama Listesi (Card Panel)
         self.list_header = tk.Frame(self.root, bg=self.bg_color, padx=10)
@@ -233,6 +232,34 @@ class ClickerApp:
         self._queue_job = self.root.after(100, self.process_queue)
         self.root.bind_all("<Button-1>", self.unfocus_entries)
         self.update_running_ui(self.clicker.enabled_event.is_set())
+        install = Path(__file__).resolve().parent.parent
+        if os.name == "nt" and not (install / ".git").exists():
+            threading.Thread(target=self.check_for_update, name="update-check", daemon=True).start()
+
+    def check_for_update(self) -> None:
+        try:
+            stage = prepare_update(
+                Path(__file__).resolve().parent.parent,
+                __version__, data_directory() / "updates",
+            )
+            if stage:
+                self.log_queue.put(("update_ready", stage))
+        except Exception as error:
+            self.enqueue_log(f"Güncelleme kontrolü tamamlanamadı: {error}")
+
+    def apply_pending_update(self) -> None:
+        if self._update_stage is None or self.clicker.is_running or self.capturing_target is not None:
+            return
+        stage = self._update_stage
+        self._update_stage = None
+        try:
+            self.save_current_configs_to_profiles(update_workers=False)
+            schedule_install(stage, Path(__file__).resolve().parent.parent)
+        except Exception as error:
+            self.enqueue_log(f"Güncelleme başlatılamadı: {error}")
+            return
+        # Use the regular close path to release input hooks and the instance mutex.
+        self.root.tk.call(self.root.protocol("WM_DELETE_WINDOW"))
 
     def shutdown(self) -> None:
         self._shutting_down = True
@@ -439,7 +466,10 @@ class ClickerApp:
             processed = 0
             while processed < 200:
                 msg_type, data = self.log_queue.get_nowait()
-                if msg_type == "log":
+                if msg_type == "update_ready":
+                    self._update_stage = data
+                    self.append_log_to_widget("Yeni sürüm hazır; makrolar durduğunda otomatik yüklenecek.")
+                elif msg_type == "log":
                     self.append_log_to_widget(data)
                 elif msg_type == "state":
                     self.update_running_ui(data)
@@ -489,6 +519,9 @@ class ClickerApp:
                 processed += 1
         except queue.Empty:
             pass
+        self.apply_pending_update()
+        if self._shutting_down:
+            return
         self._queue_job = self.root.after(
             10 if not self.log_queue.empty() else 100,
             self.process_queue,
@@ -818,22 +851,6 @@ class ClickerApp:
         )
         self.refresh_keys_list_ui()
 
-    def start_group(self, group: SequenceGroup) -> None:
-        if not group.children:
-            messagebox.showinfo(
-                "Boş Grup",
-                "Önce gruba en az bir tuş veya alt grup ekleyin.",
-            )
-            return
-        if not self.clicker.is_running:
-            self.clicker.set_enabled(
-                True,
-                reason=f"{group.name} başlatıldığı için sistem açıldı.",
-            )
-            return  # Enabling the system already starts all root groups.
-        if not self.clicker.start_sequence(group.id_token):
-            self.clicker.log(f"{group.name} zaten çalışıyor veya başlatılamadı.")
-
     def save_group_name(self, group: SequenceGroup, entry: tk.Entry) -> None:
         name = entry.get().strip()[:40] or "İsimsiz Grup"
         group.name = name
@@ -945,7 +962,7 @@ class ClickerApp:
 
         icon = tk.Label(
             header,
-            text="▶",
+            text="○",
             bg=self.card_color,
             fg=border_color,
             font=("Segoe UI", 10, "bold"),
@@ -989,21 +1006,6 @@ class ClickerApp:
 
         controls = tk.Frame(header, bg=self.card_color)
         controls.pack(side="right", padx=4)
-
-        start_button = tk.Button(
-            controls,
-            text="▶ Başlat",
-            bg=self.success_color,
-            fg="white",
-            activebackground=self.success_hover,
-            activeforeground="white",
-            bd=0,
-            font=("Segoe UI", 8, "bold"),
-            padx=7,
-            pady=3,
-            command=lambda g=group: self.start_group(g),
-        )
-        start_button.pack(side="left")
 
         add_key_button = tk.Button(
             controls,
@@ -1087,7 +1089,6 @@ class ClickerApp:
         self.group_widgets[group.id_token] = {
             "outer": outer,
             "icon": icon,
-            "start_button": start_button,
         }
 
     def update_group_states(self) -> None:
@@ -1095,22 +1096,15 @@ class ClickerApp:
             active = group_id in self.active_group_ids
             outer = widgets.get("outer")
             icon = widgets.get("icon")
-            button = widgets.get("start_button")
             if outer and outer.winfo_exists():
                 outer.configure(
                     bg=self.success_color if active else self.accent_color
                 )
             if icon and icon.winfo_exists():
                 icon.configure(
-                    text="●" if active else "▶",
+                    text="●" if active else "○",
                     fg=self.success_color if active else self.accent_color,
                 )
-            if button and button.winfo_exists():
-                button.configure(
-                    text="● Aktif" if active else "▶ Başlat",
-                    state="disabled" if active else "normal",
-                )
-
     def refresh_keys_list_ui(self):
         for widget in self.list_container.scrollable_frame.winfo_children():
             widget.destroy()

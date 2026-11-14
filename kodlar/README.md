@@ -89,3 +89,20 @@ Dağıtım boş bir Varsayılan profiliyle gelir. Daha önce bilgisayara kaydedi
 profilleri, grupları ve atamaları silmek için profil satırındaki `Sıfırla`
 düğmesini kullanın. Onaydan sonra makrolar durur ve başlat/durdur kısayolu
 ESC olur. Profil kurtarma yedeği de boşaltılır.
+
+## Güncellemeler
+
+Windows ZIP kurulumu açılışta GitHub Releases üzerindeki en son sürümü kontrol eder.
+Yeni paket HTTPS üzerinden indirilir ve SHA-256 özeti doğrulanır. Ana sistem
+pasifken otomatik uygulanır ve uygulama yeniden açılır; çalışan makrolar kesilmez.
+Profiller, ayarlar ve `.venv` korunur. İnternet yoksa uygulama çalışmaya devam eder.
+Bağımlılıklar değişmişse normal ZIP kurulumu gerekir; durum kayıtlarda belirtilir.
+Git çalışma kopyalarında otomatik dosya değiştirme kapalıdır.
+
+Profil işlemleri profil satırındaki `⋯` menüsündedir. Gruplar yalnızca ana
+`BAŞLAT` ile başlatılır; her kök grup kendi iç sırasını yürütür.
+
+`main` dalına gönderilen değişiklikler GitHub Actions ile `2.1.<çalışma numarası>`
+sürümü olarak yayımlanır. İndirilecek dosya Releases içindeki `arik-makro.zip`tir.
+İlk otomatik güncellemeli sürüm bir kez elle kurulmalıdır. Actions ve yayınlama
+izinlerinin GitHub üzerinde etkin olması gerekir.

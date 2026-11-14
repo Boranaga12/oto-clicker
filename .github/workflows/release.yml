@@ -1,0 +1,31 @@
+name: Publish application update
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: write
+concurrency:
+  group: application-release
+  cancel-in-progress: false
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Build release package
+        run: python scripts/build_release.py "2.1.${{ github.run_number }}" /tmp/arik-release
+      - name: Publish ZIP and integrity manifest
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_VERSION: 2.1.${{ github.run_number }}
+        run: |
+          if ! gh release view "v$RELEASE_VERSION" >/dev/null 2>&1; then
+            gh release create "v$RELEASE_VERSION" --target "$GITHUB_SHA" --title "Arık Makro $RELEASE_VERSION" --generate-notes --draft
+          fi
+          gh release upload "v$RELEASE_VERSION" /tmp/arik-release/arik-makro.zip /tmp/arik-release/update.json --clobber
+          gh release edit "v$RELEASE_VERSION" --draft=false --latest
