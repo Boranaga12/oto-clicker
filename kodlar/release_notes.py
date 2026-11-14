@@ -1,15 +1,19 @@
 """Curated notes bundled with the matching application release."""
 
 CURRENT_NOTES = (
+    'Windows zamanlayıcısı erken döndüğünde tıklama aralığının kısalması düzeltildi.',
+    'Beklemeler gerçek geçen süreyle hesaplanır; yazı sırasında kalan süre korunur.',
+)
+
+HISTORY = (
+    ("2.1.13", (
     'Grup çerçeveleri belirginleşti; kilitli grupların sınırları da görünür kalır.',
     'İzleme Seç ve Tıklama Seç sırasında uzak köşede canlı, renk çerçeveli büyüteç gösterilir.',
     'Kartlar tutamaçtan önizleme ve yer tutucu ile sürüklenir; Esc ile iptal edilir.',
     'Kartların üzerinde tekerlek ve hassas kaydırma düzeltildi.',
     'Kayıtlar üst ayırıcısından boyutlandırılır; panel yüksekliği hatırlanır.',
     'Kayıtlar sadeleşti; renk kodları ve teknik teşhisler dosya günlüğüne taşındı.',
-)
-
-HISTORY = (
+    )),
     ("2.1.12", (
     'Kartlar kalıcı kimlikleriyle güncellenir; ekleme, sıralama, yazı ve grup kilidinde liste baştan çizilmez.',
     'Son üç profil görünümü ve kaydırma konumu saklanır; geri geçişte mevcut kartlar yeniden kullanılır.',

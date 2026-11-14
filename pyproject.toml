@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "arik-makro"
-version = "2.1.13"
+version = "2.1.14"
 description = "Windows için profilli ve piksel izlemeli masaüstü makro uygulaması"
 readme = "kodlar/README.md"
 requires-python = ">=3.10"

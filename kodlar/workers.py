@@ -245,9 +245,14 @@ class KeyClickerWorker(StoppableWorker):
         return True
 
     def _interruptible_delay(self, seconds: float, pixel_check: Any = None) -> bool:
-        remaining = max(0.0, seconds)
         gate = getattr(self.clicker, "writing_gate", None)
+        # Windows waits may return before the requested timer interval. Measure
+        # elapsed time instead of treating every requested slice as completed.
+        # The gate clock excludes chat transactions, preserving paused delays.
+        clock = gate.clock if gate is not None else time.monotonic
+        deadline = clock() + max(0.0, seconds)
         while self._can_run():
+            remaining = deadline - clock()
             if remaining <= 0:
                 return True
             step = min(0.02, remaining)
@@ -256,7 +261,6 @@ class KeyClickerWorker(StoppableWorker):
                     return False
             elif self.wait(step):
                 return False
-            remaining -= step
             if pixel_check is not None and pixel_check():
                 return False
         return False
