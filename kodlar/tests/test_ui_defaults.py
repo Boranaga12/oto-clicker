@@ -11,6 +11,7 @@ class NewKeyDefaultTests(unittest.TestCase):
     def app(self):
         app = ClickerApp.__new__(ClickerApp)
         app.key_configs = []
+        app.clicker = Mock(is_running=False)
         app.last_add_time = 0
         app.save_current_configs_to_profiles = Mock()
         app.draw_card_row = Mock()

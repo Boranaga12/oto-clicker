@@ -1,3 +1,3 @@
 """Arık Makro uygulama paketi."""
 
-__version__ = "2.1.4"
+__version__ = "2.1.5"

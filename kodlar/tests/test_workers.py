@@ -19,6 +19,7 @@ class WorkerTests(unittest.TestCase):
         engine.enabled_event.set()
         engine.input_lock = threading.RLock()
         engine.mute_all_keys_until = 0
+        engine.is_config_enabled.side_effect = lambda config: config.enabled
         worker = KeyClickerWorker(config, Mock(), engine)
         return worker, engine
 
@@ -164,7 +165,7 @@ class TimingEditorTests(unittest.TestCase):
         for value in ('0', '0.001', '0,049', '-1'):
             with self.subTest(value=value):
                 app = ClickerApp.__new__(ClickerApp)
-                app.clicker = Mock()
+                app.clicker = Mock(is_running=False)
                 app.save_current_configs_to_profiles = Mock()
                 entry = Mock()
                 entry.get.return_value = value
@@ -185,7 +186,7 @@ class CaptureTests(unittest.TestCase):
         app.input_bg = "#000000"
         app.text_primary = "#ffffff"
         app.root = Mock()
-        app.clicker = Mock()
+        app.clicker = Mock(is_running=False)
         app.log_queue = queue.Queue()
         app.markers = {}
         config = KeyConfig('a', 1, 0, target_color='#123456')
@@ -207,7 +208,7 @@ class CaptureTests(unittest.TestCase):
         app.root = Mock()
         app.input_bg = '#000000'
         app.text_primary = '#ffffff'
-        app.clicker = Mock()
+        app.clicker = Mock(is_running=False)
         app.markers = {'marker': Mock()}
         app._shutting_down = False
         app.log_queue = queue.Queue()

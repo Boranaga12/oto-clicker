@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import unittest
+import threading
+from copy import deepcopy
 from unittest.mock import Mock, patch
 
 from pynput import keyboard
@@ -64,12 +66,44 @@ class EngineTests(unittest.TestCase):
             self.engine.set_enabled(True)
             self.assertEqual([call.args[0] for call in start.call_args_list],
                              [root.id_token, other.id_token])
-            self.assertFalse(first.enabled)
-            self.assertFalse(later.enabled)
+            self.assertTrue(first.enabled)
+            self.assertTrue(later.enabled)
+            self.assertFalse(self.engine.is_config_enabled(first))
+            self.assertFalse(self.engine.is_config_enabled(later))
             self.assertTrue(independent.enabled)
             self.engine.set_enabled(False)
             self.engine.set_enabled(True)
             self.assertEqual(start.call_count, 4)
+
+    def test_group_sequence_only_changes_runtime_not_saved_configurations(self):
+        first = KeyConfig('a', 0.2, 0.01, enabled=False)
+        later = KeyConfig('b', 0.3, 0.02, enabled=True)
+        before = deepcopy([first, later])
+        group = SequenceGroup(children=[
+            SequenceItem(kind='macro', macro_id=first.id_token),
+            SequenceItem(kind='macro', macro_id=later.id_token, delay_seconds=0.02),
+        ])
+        finished = threading.Event()
+        self.engine.sequence_state_callback = lambda token, active: finished.set() if not active else None
+        self.engine.persist_callback = Mock()
+        with patch('kodlar.engine.KeyClickerWorker', DummyWorker):
+            self.engine.configure([first, later], sequence_groups=[group])
+            self.engine.set_enabled(True)
+            self.assertTrue(finished.wait(1))
+            self.assertTrue(self.engine.is_config_enabled(first))
+            self.assertTrue(self.engine.is_config_enabled(later))
+            self.assertEqual([first, later], before)
+            self.engine.persist_callback.assert_not_called()
+            self.engine.set_enabled(False)
+            self.assertEqual([first, later], before)
+            self.assertFalse(self.engine.is_config_enabled(first))
+
+    def test_late_runtime_activation_cannot_modify_saved_settings_after_stop(self):
+        config = KeyConfig('a', 1, 0, enabled=False)
+        self.engine.key_configs = [config]
+        self.assertFalse(self.engine._activate_macro_by_id(config.id_token))
+        self.assertFalse(self.engine.set_config_enabled(config, True, runtime_only=True))
+        self.assertFalse(config.enabled)
 
     def test_state_changes_are_published(self) -> None:
         states: list[bool] = []

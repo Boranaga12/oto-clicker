@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import queue
+from functools import wraps
 import os
 from pathlib import Path
 import time
@@ -38,6 +39,16 @@ from .sequences import (
 from .ui_widgets import DEFAULT_THEME, ScrollableFrame
 
 
+def editable_only(method):
+    """Also reject queued callbacks during the gap before Tk is visually locked."""
+    @wraps(method)
+    def guarded(self, *args, **kwargs):
+        if self.clicker.is_running:
+            return
+        return method(self, *args, **kwargs)
+    return guarded
+
+
 class ClickerApp:
     def __init__(self, root: tk.Tk, clicker: RandomizedAutoClicker) -> None:
         self.root = root
@@ -52,6 +63,9 @@ class ClickerApp:
         self._queue_job: str | None = None
         self._shutting_down = False
         self._update_stage: Path | None = None
+        self._locked_widget_states = {}
+        self._locked_menu_states = {}
+        self._capture_overlay = None
         
         theme = DEFAULT_THEME
         self.bg_color = theme.background
@@ -368,6 +382,7 @@ class ClickerApp:
         )
         return menu_btn
 
+    @editable_only
     def on_marker_press(self, marker_window, event):
         marker_window._drag_x = event.x
         marker_window._drag_y = event.y
@@ -397,6 +412,7 @@ class ClickerApp:
 
         self.root.after(50, forward_click)
 
+    @editable_only
     def on_marker_drag(self, marker_window, event, config, marker_type):
         dx = event.x - marker_window._drag_x
         dy = event.y - marker_window._drag_y
@@ -418,6 +434,7 @@ class ClickerApp:
         if marker_type != "screen":
             self.schedule_marker_save()
 
+    @editable_only
     def on_screen_marker_release(self, marker, config):
         pending = getattr(marker, "_pending_pixel", None)
         if pending is None:
@@ -496,12 +513,15 @@ class ClickerApp:
                 
                 self.markers[f"click_{id(config)}"] = marker
 
+    @editable_only
     def toggle_topmost(self):
         self.root.attributes("-topmost", self.topmost_var.get() == 1)
 
     def toggle_system(self) -> None:
         """Arayüzden sistemi güvenli biçimde başlat veya durdur."""
+        self.root.focus_set()
         self.clicker.toggle_manual()
+        self.update_running_ui(self.clicker.is_running)
 
     def enqueue_log(self, msg: str):
         self.log_queue.put(("log", msg))
@@ -532,6 +552,7 @@ class ClickerApp:
             self.root.after_cancel(self._marker_save_job)
         self._marker_save_job = self.root.after(250, self._flush_marker_save)
 
+    @editable_only
     def _flush_marker_save(self):
         self._marker_save_job = None
         self.save_current_configs_to_profiles(update_workers=False)
@@ -563,6 +584,10 @@ class ClickerApp:
                     self.update_group_states()
                 elif msg_type == "capture":
                     self.handle_captured_key(data)
+                elif msg_type in {"pixel_capture", "click_capture"} and self.clicker.is_running:
+                    self.log_queue.task_done()
+                    processed += 1
+                    continue
                 elif msg_type == "pixel_capture":
                     config, x, y, color, btn, lbl, preview = data
                     config.pixel_x = x
@@ -675,6 +700,7 @@ class ClickerApp:
             self.profiles_data.get("groups", {}).get(self.active_profile, [])
         )
         
+    @editable_only
     def save_current_configs_to_profiles(
         self,
         update_workers: bool = False,
@@ -704,10 +730,12 @@ class ClickerApp:
             menu.add_command(label=name, command=lambda val=name: self.on_profile_menu_select(val))
         self.profile_var.set(self.active_profile)
 
+    @editable_only
     def on_profile_menu_select(self, val):
         self.profile_var.set(val)
         self.on_profile_changed()
 
+    @editable_only
     def on_profile_changed(self, event=None):
         self.save_current_configs_to_profiles(update_workers=False)
         new_profile = self.profile_var.get().strip()
@@ -723,9 +751,10 @@ class ClickerApp:
             )
             self.refresh_keys_list_ui()
 
+    @editable_only
     def create_profile(self):
         name = simpledialog.askstring("Yeni Profil", "Profil ismini girin:", parent=self.root)
-        if name:
+        if name and not self.clicker.is_running:
             name = name.strip()
             duplicate = next(
                 (
@@ -753,6 +782,7 @@ class ClickerApp:
             elif duplicate is not None:
                 messagebox.showerror("Hata", "Bu isimde bir profil zaten mevcut.")
 
+    @editable_only
     def reset_all_profiles(self) -> None:
         if not messagebox.askyesno(
             "Tümünü Sıfırla",
@@ -760,6 +790,8 @@ class ClickerApp:
             "Başlat/durdur kısayolu ESC olarak sıfırlanacak.",
             parent=self.root,
         ):
+            return
+        if self.clicker.is_running:
             return
         self.clicker.set_enabled(False)
         if self._marker_save_job is not None:
@@ -783,12 +815,13 @@ class ClickerApp:
         self.refresh_profile_combobox()
         self.refresh_keys_list_ui()
 
+    @editable_only
     def delete_profile(self):
         if len(self.profiles_data["profiles"]) <= 1:
             messagebox.showinfo("Bilgi", "En az bir adet profil bulunmalıdır.")
             return
             
-        if messagebox.askyesno("Onay", f"'{self.active_profile}' profilini silmek istiyor musunuz?"):
+        if messagebox.askyesno("Onay", f"'{self.active_profile}' profilini silmek istiyor musunuz?") and not self.clicker.is_running:
             del self.profiles_data["profiles"][self.active_profile]
             self.profiles_data.get("groups", {}).pop(self.active_profile, None)
                 
@@ -805,6 +838,7 @@ class ClickerApp:
             self.refresh_profile_combobox()
             self.refresh_keys_list_ui()
 
+    @editable_only
     def start_key_capture(self, target_type: str, config: KeyConfig | None = None, button_widget: tk.Button | None = None):
         if self.capturing_target is not None:
             _, _, prev_btn = self.capturing_target
@@ -829,6 +863,7 @@ class ClickerApp:
     def on_key_captured(self, key_name: str):
         self.log_queue.put(("capture", key_name))
 
+    @editable_only
     def handle_captured_key(self, key_name: str):
         if self.capturing_target is None:
             return
@@ -882,6 +917,7 @@ class ClickerApp:
                     
             self.draw_markers()
 
+    @editable_only
     def add_root_group(self) -> None:
         group = SequenceGroup(name=f"Grup {len(self.sequence_groups) + 1}")
         self.sequence_groups.append(group)
@@ -892,6 +928,7 @@ class ClickerApp:
         self.refresh_keys_list_ui()
         self._scroll_to_bottom()
 
+    @editable_only
     def add_key_to_group(self, group: SequenceGroup) -> None:
         config = KeyConfig(
             key="sol klik",
@@ -914,6 +951,7 @@ class ClickerApp:
         )
         self.refresh_keys_list_ui()
 
+    @editable_only
     def add_nested_group(self, parent: SequenceGroup, depth: int) -> None:
         if depth + 1 >= MAX_GROUP_DEPTH:
             messagebox.showinfo(
@@ -935,6 +973,7 @@ class ClickerApp:
         )
         self.refresh_keys_list_ui()
 
+    @editable_only
     def save_group_name(self, group: SequenceGroup, entry: tk.Entry) -> None:
         name = entry.get().strip()[:40] or "İsimsiz Grup"
         group.name = name
@@ -942,6 +981,7 @@ class ClickerApp:
         entry.insert(0, name)
         self.save_current_configs_to_profiles(update_workers=False)
 
+    @editable_only
     def save_group_delay(self, item: SequenceItem, entry: tk.Entry) -> None:
         try:
             value = round(float(entry.get().strip().replace(",", ".")), 3)
@@ -955,6 +995,7 @@ class ClickerApp:
         entry.insert(0, f"{value:.3f}")
         self.save_current_configs_to_profiles(update_workers=False)
 
+    @editable_only
     def delete_group(self, group: SequenceGroup) -> None:
         macro_ids = group_macro_ids(group)
         if not messagebox.askyesno(
@@ -965,6 +1006,8 @@ class ClickerApp:
             ),
             parent=self.root,
         ):
+            return
+        if self.clicker.is_running:
             return
         self._remove_group(self.sequence_groups, group.id_token)
         self.key_configs = [
@@ -1062,6 +1105,7 @@ class ClickerApp:
             font=("Segoe UI", 9, "bold"), width=8,
         )
         name_entry.insert(0, group.name)
+        name_entry._saved_value = lambda g=group: g.name
         name_entry.pack(side="left", fill="x", expand=True, ipady=2)
         name_entry.bind(
             "<FocusOut>",
@@ -1139,6 +1183,7 @@ class ClickerApp:
                 delay_entry = self.create_modern_entry(delay_row, width=6)
                 delay_entry.frame.pack(side="left", padx=4)
                 delay_entry.insert(0, f"{item.delay_seconds:.3f}")
+                delay_entry._saved_value = lambda i=item: f"{i.delay_seconds:.3f}"
                 delay_entry.bind(
                     "<FocusOut>",
                     lambda _event, sequence_item=item, entry=delay_entry:
@@ -1250,6 +1295,7 @@ class ClickerApp:
         int_entry = self.create_modern_entry(row2, width=6)
         int_entry.frame.pack(side="left", padx=(5, 10))
         int_entry.insert(0, f"{config.interval_seconds:.3f}")
+        int_entry._saved_value = lambda cfg=config: f"{cfg.interval_seconds:.3f}"
         
         # Auto-save bindings for interval
         int_entry.bind("<FocusOut>", lambda e, cfg=config, entry=int_entry: self.auto_save_timing(cfg, entry, "interval"))
@@ -1259,6 +1305,7 @@ class ClickerApp:
         rand_entry = self.create_modern_entry(row2, width=6)
         rand_entry.frame.pack(side="left", padx=5)
         rand_entry.insert(0, f"{config.random_seconds:.3f}")
+        rand_entry._saved_value = lambda cfg=config: f"{cfg.random_seconds:.3f}"
         
         # Auto-save bindings for randomness
         rand_entry.bind("<FocusOut>", lambda e, cfg=config, entry=rand_entry: self.auto_save_timing(cfg, entry, "random"))
@@ -1384,11 +1431,13 @@ class ClickerApp:
             "loc_btn": loc_btn
         }
 
+    @editable_only
     def start_pixel_capture(self, config: KeyConfig, button: tk.Button, coord_lbl: tk.Label, color_preview: tk.Canvas):
         button.configure(text="Tıklayın...", bg=self.accent_color, fg="white")
         
         # Tam ekran şeffaf overlay penceresi oluştur
         overlay = tk.Toplevel(self.root)
+        self._capture_overlay = overlay
         overlay.overrideredirect(True)
         overlay.attributes("-topmost", True)
         
@@ -1420,6 +1469,7 @@ class ClickerApp:
                 if marker.winfo_exists():
                     marker.deiconify()
 
+    @editable_only
     def on_overlay_clicked(self, event, overlay, config, button, coord_lbl, color_preview):
         # Capture the selected scene without forwarding a click into the game.
         x, y = event.x_root, event.y_root
@@ -1437,10 +1487,12 @@ class ClickerApp:
         button.configure(text="Piksel Seç", bg=self.input_bg, fg=self.text_primary)
         self.clicker.log("Piksel seçimi iptal edildi.")
 
+    @editable_only
     def start_click_capture(self, config: KeyConfig, button: tk.Button, loc_lbl: tk.Label):
         button.configure(text="Tıklayın...", bg=self.accent_color, fg="white")
         
         overlay = tk.Toplevel(self.root)
+        self._capture_overlay = overlay
         overlay.overrideredirect(True)
         overlay.attributes("-topmost", True)
         
@@ -1454,6 +1506,7 @@ class ClickerApp:
         overlay.bind("<Button-1>", lambda event: self.on_click_overlay_clicked(event, overlay, config, button, loc_lbl))
         overlay.bind("<Escape>", lambda event: self.cancel_click_overlay_capture(overlay, button))
 
+    @editable_only
     def on_click_overlay_clicked(self, event, overlay, config, button, loc_lbl):
         overlay._click_count = getattr(overlay, "_click_count", 0) + 1
         x = event.x_root
@@ -1473,6 +1526,7 @@ class ClickerApp:
         button.configure(text="Konum Seç", bg=self.input_bg, fg=self.text_primary)
         self.clicker.log("Tıklama konumu seçimi iptal edildi.")
 
+    @editable_only
     def reset_click_coordinate(self, config: KeyConfig, loc_lbl: tk.Label):
         config.click_x = -1
         config.click_y = -1
@@ -1482,6 +1536,7 @@ class ClickerApp:
         self.clicker.log(f"{config.key.upper()} tıklama konumu sıfırlandı, imleç konumuna tıklanacak.")
         self.draw_markers()
 
+    @editable_only
     def toggle_screen_mode(self, config: KeyConfig, screen_var: tk.IntVar):
         config.screen_mode = (screen_var.get() == 1)
         self.save_current_configs_to_profiles(update_workers=True)
@@ -1496,6 +1551,7 @@ class ClickerApp:
                 
         self.draw_markers()
 
+    @editable_only
     def auto_save_timing(self, config: KeyConfig, entry: tk.Entry, field_type: str):
         try:
             raw_text = entry.get().strip().replace(",", ".")
@@ -1527,6 +1583,7 @@ class ClickerApp:
                 entry.insert(0, f"{config.random_seconds:.3f}")
             self.clicker.log(f"Geçersiz zamanlama değeri: {e}")
 
+    @editable_only
     def add_blank_key_config(self):
         now = time.monotonic()
         if now - self.last_add_time < 0.1:
@@ -1557,6 +1614,7 @@ class ClickerApp:
         self.list_container.canvas.configure(scrollregion=self.list_container.canvas.bbox("all"))
         self.list_container.canvas.yview_moveto(1.0)
 
+    @editable_only
     def delete_key_config(self, config: KeyConfig):
         cfg_id = id(config)
         if cfg_id in self.config_widgets:
@@ -1586,13 +1644,68 @@ class ClickerApp:
                 var = self.config_widgets[cfg_id]["chk_var"]
                 var.set(1 if config.enabled else 0)
                 
+    @editable_only
     def toggle_key_enabled(self, config: KeyConfig, var: tk.IntVar):
         self.clicker.set_config_enabled(config, var.get() == 1)
         self.save_current_configs_to_profiles(update_workers=False)
         state_str = "aktif" if config.enabled else "pasif"
         self.clicker.log(f"{config.key.upper()} basıcısı {state_str} yapıldı.")
 
+    def set_editing_locked(self, locked: bool) -> None:
+        if not locked:
+            for widget, state in self._locked_widget_states.items():
+                if widget.winfo_exists():
+                    widget.configure(state=state)
+            for (menu, index), state in self._locked_menu_states.items():
+                if menu.winfo_exists():
+                    menu.entryconfigure(index, state=state)
+            self._locked_widget_states.clear()
+            self._locked_menu_states.clear()
+            return
+
+        self.clicker.capturing_callback = None
+        self.capturing_target = None
+        self.panic_btn.configure(text=self.clicker.app_config.panic_key.upper())
+        overlay = self._capture_overlay
+        if overlay is not None and overlay.winfo_exists():
+            overlay.destroy()
+        self._capture_overlay = None
+        for config in self.key_configs:
+            widgets = self.config_widgets.get(id(config), {})
+            for name, label in (("key_btn", config.key.upper()), ("pixel_btn", "Piksel Seç"), ("loc_btn", "Konum Seç")):
+                if name in widgets:
+                    widgets[name].configure(text=label)
+        self.root.focus_set()
+
+        def lock_widget(widget):
+            if isinstance(widget, (tk.Entry, tk.Button, tk.Checkbutton, tk.Menubutton)):
+                if widget not in self._locked_widget_states:
+                    self._locked_widget_states[widget] = widget.cget("state")
+                    if isinstance(widget, tk.Entry):
+                        saved_value = getattr(widget, "_saved_value", None)
+                        if saved_value is not None:
+                            widget.delete(0, tk.END)
+                            widget.insert(0, saved_value())
+                        widget.configure(disabledbackground=self.input_bg, disabledforeground=self.text_secondary)
+                    widget.configure(state="disabled")
+            if isinstance(widget, tk.Menu):
+                widget.unpost()
+                end = widget.index("end")
+                for index in range(end + 1 if end is not None else 0):
+                    if widget.type(index) == "separator":
+                        continue
+                    token = (widget, index)
+                    if token not in self._locked_menu_states:
+                        self._locked_menu_states[token] = widget.entrycget(index, "state")
+                        widget.entryconfigure(index, state="disabled")
+            for child in widget.winfo_children():
+                lock_widget(child)
+
+        for container in (self.profile_frame, self.list_header, self.list_container.scrollable_frame, self.chk_topmost):
+            lock_widget(container)
+
     def update_running_ui(self, active: bool):
+        self.set_editing_locked(active)
         self.draw_markers()
         if active:
             self.status_badge.configure(

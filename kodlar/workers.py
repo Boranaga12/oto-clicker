@@ -45,12 +45,15 @@ class EngineContext(Protocol):
 
     def mark_injected_mouse(self, button: Button) -> None: ...
 
+    def is_config_enabled(self, config: KeyConfig) -> bool: ...
+
     def set_config_enabled(
         self,
         config: KeyConfig,
         active: bool,
         *,
         trigger_sequence: bool = True,
+        runtime_only: bool = False,
     ) -> bool: ...
 
 
@@ -170,7 +173,7 @@ class KeyClickerWorker(StoppableWorker):
         self.clicker.log(f"{self.config.key.upper()} için renk değişimi izleniyor.")
         with PixelSampler() as pixels:
             while not self.stop_event.is_set():
-                if not self.clicker.enabled_event.is_set() or not self.config.enabled:
+                if not self.clicker.enabled_event.is_set() or not self.clicker.is_config_enabled(self.config):
                     self.wait(0.2)
                     continue
                 if not self.config.has_click_target:
@@ -196,7 +199,7 @@ class KeyClickerWorker(StoppableWorker):
                     self.wait(0.1)
 
     def _can_run(self) -> bool:
-        if self.stop_event.is_set() or not self.clicker.enabled_event.is_set() or not self.config.enabled:
+        if self.stop_event.is_set() or not self.clicker.enabled_event.is_set() or not self.clicker.is_config_enabled(self.config):
             return False
         if not self.is_mouse and time.monotonic() < self.clicker.mute_all_keys_until:
             return False
@@ -295,8 +298,8 @@ class KeyClickerWorker(StoppableWorker):
             if action_type == "Aktif Et":
                 target_id = str(action.get("target_id", ""))
                 for target in self.clicker.key_configs:
-                    if target.id_token == target_id and not target.enabled:
-                        changed = self.clicker.set_config_enabled(target, True)
+                    if target.id_token == target_id and not self.clicker.is_config_enabled(target):
+                        changed = self.clicker.set_config_enabled(target, True, runtime_only=True) or changed
                         break
             elif action_type == "Sustur" and not action.get("use_color_change", False):
                 try:
@@ -310,7 +313,5 @@ class KeyClickerWorker(StoppableWorker):
                 )
 
         if changed:
-            if self.clicker.persist_callback:
-                self.clicker.persist_callback()
             if self.clicker.refresh_callback:
                 self.clicker.refresh_callback()

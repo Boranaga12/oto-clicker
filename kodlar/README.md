@@ -133,3 +133,11 @@ Yeni bağımsız veya gruba eklenen tuşlarda rastgele gecikme `0.010` saniyedir
 Piksel tam olarak farklıysa tuş tekrarlanır; renk tekrar eşleşince bekleyen basış
 iptal edilir. Basıştan hemen önce de kontrol yapılır. Okunamayan piksel tetiklemez.
 İzleme işaretçisi sürüklenirse yeni renk sürükleme bittiğinde alınır.
+
+## Çalışırken ayar kilidi
+
+Ana sistem aktifken tuşlar, zamanlama, rastgele gecikme, piksel/konum seçimi,
+izleme ve Aktif kutuları, grup düzenleme ve profil işlemleri kilitlenir.
+Durdurma ve güncelleme notlarını görüntüleme açık kalır. Sistem durdurulduğunda
+önceki düzenleme izinleri geri gelir. Grup/zincir aktivasyonu yalnızca geçici
+çalışma durumunu değiştirir; kayıtlı tuş ayarlarına ve profillere yazılmaz.

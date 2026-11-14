@@ -68,6 +68,7 @@ class RandomizedAutoClicker:
         self.last_toggle_at = 0.0
         self.manual_enabled = False
         self.mute_all_keys_until = 0.0
+        self._runtime_enabled: dict[str, bool] = {}
         self._activity_log_times: dict[str, float] = {}
         self._injected_inputs: dict[tuple[str, str], deque[float]] = defaultdict(deque)
 
@@ -170,16 +171,18 @@ class RandomizedAutoClicker:
             self.manual_enabled = active
             if active:
                 if not previous:
-                    # Each run starts grouped macros in order, including saved active ones.
                     grouped_ids = grouped_macro_ids(self.sequence_groups)
-                    for config in self.key_configs:
-                        if config.id_token in grouped_ids:
-                            config.enabled = False
+                    self._runtime_enabled = {
+                        config.id_token: False if config.id_token in grouped_ids else config.enabled
+                        for config in self.key_configs
+                    }
                 self.enabled_event.set()
             else:
                 self.enabled_event.clear()
         if previous and not active:
             self.sequence_runner.cancel()
+            with self.state_lock:
+                self._runtime_enabled.clear()
         if not previous and active:
             for group in self.sequence_groups:
                 self.sequence_runner.start_group(group.id_token)
@@ -207,13 +210,25 @@ class RandomizedAutoClicker:
         active: bool,
         *,
         trigger_sequence: bool = True,
+        runtime_only: bool = False,
     ) -> bool:
-        was_active = config.enabled
-        config.enabled = active
-        changed = was_active != active
+        with self.state_lock:
+            if self.is_running:
+                was_active = self._runtime_enabled.get(config.id_token, config.enabled)
+                self._runtime_enabled[config.id_token] = active
+            elif runtime_only:
+                return False
+            else:
+                was_active = config.enabled
+                config.enabled = active
+            changed = was_active != active
         if changed and active and trigger_sequence:
             self.sequence_runner.trigger_for_macro(config.id_token)
         return changed
+
+    def is_config_enabled(self, config: KeyConfig) -> bool:
+        with self.state_lock:
+            return self._runtime_enabled.get(config.id_token, config.enabled)
 
     def start_sequence(self, group_id: str) -> bool:
         return self.sequence_runner.start_group(group_id)
@@ -225,11 +240,12 @@ class RandomizedAutoClicker:
                     config,
                     True,
                     trigger_sequence=False,
+                    runtime_only=True,
                 )
         return False
 
     def _request_persist(self) -> None:
-        if self.persist_callback:
+        if not self.is_running and self.persist_callback:
             self.persist_callback()
 
     def _request_refresh(self) -> None:
