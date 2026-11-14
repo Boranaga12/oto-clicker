@@ -4,11 +4,11 @@ cd /d "%~dp0"
 
 set "BASE_PYTHON="
 set "BASE_ARGS="
-set "VENV_DIR=%~dp0.venv"
-set "VENV_PYTHON=%~dp0.venv\Scripts\python.exe"
-set "VENV_PYTHONW=%~dp0.venv\Scripts\pythonw.exe"
+set "VENV_DIR=%~dp0kodlar\.venv"
+set "VENV_PYTHON=%~dp0kodlar\.venv\Scripts\python.exe"
+set "VENV_PYTHONW=%~dp0kodlar\.venv\Scripts\pythonw.exe"
 set "REQUIREMENTS=%~dp0kodlar\requirements.txt"
-set "REQUIREMENTS_STAMP=%~dp0.venv\requirements.installed"
+set "REQUIREMENTS_STAMP=%~dp0kodlar\.venv\requirements.installed"
 
 if exist "%VENV_PYTHON%" goto dependencies
 

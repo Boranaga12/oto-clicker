@@ -15,7 +15,7 @@ def build(version: str, output: Path) -> None:
     version_number(version)
     output.mkdir(parents=True, exist_ok=True)
     files = [*ROOT.joinpath('kodlar').glob('*.py'), *ROOT.joinpath('kodlar/assets').glob('*')]
-    files += [ROOT / name for name in ('baslat.bat', 'hata_ayikla.bat', 'pyproject.toml', 'README.md', 'kodlar/README.md', 'kodlar/requirements.txt')]
+    files += [ROOT / name for name in ('baslat.bat', 'kodlar/README.md', 'kodlar/requirements.txt')]
     archive = output / 'arik-makro.zip'
     with zipfile.ZipFile(archive, 'w', zipfile.ZIP_DEFLATED) as bundle:
         for path in sorted(files):
@@ -24,8 +24,6 @@ def build(version: str, output: Path) -> None:
             data = path.read_bytes()
             if relative == 'kodlar/__init__.py':
                 data = re.sub(r'__version__ = "[^"]+"', f'__version__ = "{version}"', data.decode()).encode()
-            elif relative == 'pyproject.toml':
-                data = re.sub(r'^version = "[^"]+"', f'version = "{version}"', data.decode(), flags=re.MULTILINE).encode()
             bundle.writestr('oto-clicker/' + relative, data)
     manifest = {'version': version, 'sha256': hashlib.sha256(archive.read_bytes()).hexdigest()}
     (output / 'update.json').write_text(json.dumps(manifest, indent=2) + '\n', encoding='utf-8')

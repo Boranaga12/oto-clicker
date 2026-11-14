@@ -9,7 +9,7 @@ Proje kökündeki `baslat.bat` dosyasına çift tıklayın. Python 3.10 veya dah
 kurulumunu seçer ve eksik bağımlılıkları yükler. Normal açılışta komut
 penceresi kapanır. Açılış hataları bir ileti kutusunda gösterilir ve
 `%APPDATA%\ArikMakro\startup-error.log` dosyasına kaydedilir.
-Konsolda ayrıntılı inceleme için `hata_ayikla.bat` dosyasını çalıştırın.
+Konsolda ayrıntılı inceleme için `py kodlar/hata_ayikla.py` komutunu çalıştırın.
 
 Terminalden çalıştırmak için:
 
@@ -95,7 +95,7 @@ ESC olur. Profil kurtarma yedeği de boşaltılır.
 Windows ZIP kurulumu açılışta GitHub Releases üzerindeki en son sürümü kontrol eder.
 Yeni paket HTTPS üzerinden indirilir ve SHA-256 özeti doğrulanır. Ana sistem
 pasifken otomatik uygulanır ve uygulama yeniden açılır; çalışan makrolar kesilmez.
-Profiller, ayarlar ve `.venv` korunur. İnternet yoksa uygulama çalışmaya devam eder.
+Profiller, ayarlar ve sanal ortam korunur. İnternet yoksa uygulama çalışmaya devam eder.
 Bağımlılıklar değişmişse normal ZIP kurulumu gerekir; durum kayıtlarda belirtilir.
 Git çalışma kopyalarında otomatik dosya değiştirme kapalıdır.
 
@@ -106,3 +106,13 @@ Profil işlemleri profil satırındaki `⋯` menüsündedir. Gruplar yalnızca a
 sürümü olarak yayımlanır. İndirilecek dosya Releases içindeki `arik-makro.zip`tir.
 İlk otomatik güncellemeli sürüm bir kez elle kurulmalıdır. Actions ve yayınlama
 izinlerinin GitHub üzerinde etkin olması gerekir.
+
+## Paket düzeni
+
+İndirilecek `arik-makro.zip` paketinin ana klasöründe yalnızca `baslat.bat` ve
+`kodlar` bulunur. Sanal ortam da `kodlar/.venv` altında oluşturulur.
+Yeni düzeni kullanmak için ZIP'i boş bir klasöre çıkarın; eski klasörün üzerine
+çıkarmak eski sürüm dosyalarını silmez. Kullanıcı profilleri uygulama klasörü
+dışındaki AppData alanında saklandığı için yeni klasörde de korunur.
+GitHub'ın kaynak kod ZIP'i geliştirme dosyalarını içerir; uygulama paketi için
+Releases içindeki `arik-makro.zip` dosyasını indirin.

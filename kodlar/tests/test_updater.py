@@ -45,13 +45,13 @@ class UpdateTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = self.installed(directory)
             (root / 'kodlar/profiles.json').write_text('my profiles')
-            (root / '.venv').mkdir()
-            (root / '.venv/marker').write_text('dependencies')
+            (root / 'kodlar/.venv').mkdir()
+            (root / 'kodlar/.venv/marker').write_text('dependencies')
             stage = self.prepare(root, directory)
             updater.install_payload(stage, root)
             self.assertEqual((root / 'baslat.bat').read_bytes(), b'new launcher')
             self.assertEqual((root / 'kodlar/profiles.json').read_text(), 'my profiles')
-            self.assertEqual((root / '.venv/marker').read_text(), 'dependencies')
+            self.assertEqual((root / 'kodlar/.venv/marker').read_text(), 'dependencies')
 
     def test_no_download_for_installed_or_older_version(self):
         with patch.object(updater, 'fetch', return_value=b'{"version":"2.1.1"}') as fetch:
