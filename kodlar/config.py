@@ -17,6 +17,7 @@ LOGGER = logging.getLogger(__name__)
 @dataclass(slots=True)
 class AppConfig:
     panic_key: str = "esc"
+    log_panel_height: int = 120
 
 
 def read_setting(
@@ -61,14 +62,19 @@ def load_config(path: Path | None = None) -> AppConfig:
     if parser.has_section("settings"):
         panic_key = read_setting(parser, "settings", "panic_key", "esc")
 
-    return AppConfig(panic_key=panic_key)
+    try:
+        panel_height = max(80, min(1200, parser.getint("settings", "log_panel_height", fallback=120)))
+    except ValueError:
+        panel_height = 120
+    return AppConfig(panic_key=panic_key, log_panel_height=panel_height)
 
 
 def save_config(config: AppConfig, path: Path | None = None) -> None:
     path = path or writable_data_file("settings.ini")
     parser = configparser.ConfigParser()
     parser["settings"] = {
-        "panic_key": config.panic_key
+        "panic_key": config.panic_key,
+        "log_panel_height": str(config.log_panel_height),
     }
     path.parent.mkdir(parents=True, exist_ok=True)
     temp_name: str | None = None

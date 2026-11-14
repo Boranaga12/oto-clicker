@@ -79,8 +79,6 @@ class PhysicalCaptureTests(unittest.TestCase):
                         read.assert_called_once_with(952, 532)
             overlay.assert_not_called()
         kind, data = app.log_queue.get_nowait()
-        self.assertEqual(kind, 'log')
-        kind, data = app.log_queue.get_nowait()
         self.assertEqual(kind, 'pixel_pick_result')
         self.assertEqual(data[1:], (952, 532, '#123456', (0, 0, 1920, 1080)))
         app.root.focus_set.assert_not_called()

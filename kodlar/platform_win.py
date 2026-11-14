@@ -226,9 +226,9 @@ def make_overlay_passive(window_id: int) -> int | None:
     return handle
 
 
-def move_overlay(handle: int, x: int, y: int, size: int) -> None:
+def move_overlay(handle: int, x: int, y: int, size: int, height: int | None = None) -> None:
     _user32.SetWindowPos.argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_int, ctypes.c_int, ctypes.c_int, ctypes.c_int, wintypes.UINT]
-    if not _user32.SetWindowPos(handle, ctypes.c_void_p(-1), x, y, size, size, 0x0010):
+    if not _user32.SetWindowPos(handle, ctypes.c_void_p(-1), x, y, size, size if height is None else height, 0x0010):
         raise OSError("İşaretçi konumlandırılamadı")
 
 

@@ -56,8 +56,14 @@ class WritingUITests(unittest.TestCase):
         self.assertEqual(self.group.children[1].macro_id, first)
         cards = self.app._group_cards[self.group.id_token]
         self.root.update()
-        self.app.start_group_drag(Mock(y_root=cards[0][1].winfo_rooty()), self.group, first)
-        self.app.finish_group_drag(Mock())
+        from types import SimpleNamespace
+        handle = self.app.config_widgets[id(self.keys[0])]['handle']
+        x = handle.winfo_rootx()+3
+        start = SimpleNamespace(widget=handle, x_root=x, y_root=handle.winfo_rooty()+3)
+        target = SimpleNamespace(widget=handle, x_root=x, y_root=cards[0][1].winfo_rooty()+2)
+        self.app.start_group_drag(start, self.group, first)
+        self.app.drag_group_key(target)
+        self.app.finish_group_drag(target)
         self.assertEqual(self.group.children[0].macro_id, first)
         self.assertIsNone(self.app._group_drag_job)
         self.assertIsNone(self.app._group_drop_line)

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import queue
+import logging
 from collections import deque, OrderedDict
 from functools import wraps
 from dataclasses import fields
@@ -41,9 +42,11 @@ from .sequences import (
 )
 from .ui_widgets import DEFAULT_THEME, ScrollableFrame, PointMarker
 from .workers import MOUSE_NAMES
+from .magnifier import SelectionMagnifier
 
 
 PIXEL_PICK_OFFSET = 8
+LOGGER = logging.getLogger(__name__)
 
 
 def editable_only(method):
@@ -111,7 +114,7 @@ class ClickerApp:
         self.root.title(f"Arık Makro · v{__version__}")
         self.root.geometry("480x640")
         self.root.resizable(False, True)
-        self.root.minsize(480, 360)
+        self.root.minsize(480, 440)
         self.root.maxsize(480, self.root.winfo_screenheight())
         icon_directory = Path(__file__).with_name("assets")
         self._window_icon = tk.PhotoImage(file=str(icon_directory / "mouse.png"))
@@ -263,14 +266,23 @@ class ClickerApp:
         )
         self.add_group_btn.pack(side="right", padx=(0, 5))
         
-        self.list_container = ScrollableFrame(self.root, background=self.bg_color)
-        self.list_container.pack(fill="both", expand=True, padx=10, pady=(5, 5))
+        self.content_split = tk.PanedWindow(
+            self.root, orient="vertical", bg=self.border_color, sashwidth=7,
+            sashrelief="flat", showhandle=True, handlesize=10, bd=0,
+            opaqueresize=True, cursor="sb_v_double_arrow",
+        )
+        self.content_split.pack(fill="both", expand=True, padx=10, pady=(5, 10))
+        self.list_container = ScrollableFrame(self.content_split, background=self.bg_color)
+        self.content_split.add(self.list_container, minsize=180, stretch="always")
         
         # 4. Log Alanı (Alt)
         self.console_area = tk.Frame(
-            self.root, bg=self.card_color, bd=0, highlightbackground=self.border_color, highlightthickness=1
+            self.content_split, bg=self.card_color, bd=0, highlightbackground=self.border_color, highlightthickness=1
         )
-        self.console_area.pack(side="bottom", fill="x", padx=10, pady=(0, 10))
+        self.content_split.add(self.console_area, minsize=80, stretch="never")
+        self.content_split.bind("<ButtonRelease-1>", self.save_log_panel_height, add="+")
+        self.content_split.bind("<Configure>", self.clamp_log_panel, add="+")
+        self.root.after_idle(self.restore_log_panel_height)
         
         # Log Başlığı ve Temizleme Butonu
         log_header = tk.Frame(self.console_area, bg=self.card_color, padx=6, pady=4)
@@ -296,6 +308,8 @@ class ClickerApp:
         
         self._queue_job = self.root.after(100, self.process_queue)
         self.root.bind_all("<Button-1>", self.unfocus_entries)
+        self.root.bind("<Escape>", lambda _event: self.finish_group_drag(None), add="+")
+        self.root.bind("<FocusOut>", self.check_drag_focus, add="+")
         self.update_running_ui(self.clicker.enabled_event.is_set())
         install = Path(__file__).resolve().parent.parent
         if os.name == "nt" and not (install / ".git").exists():
@@ -516,6 +530,9 @@ class ClickerApp:
 
     def begin_point_preview(self, kind, config):
         self._preview_kind = kind
+        self._magnifier_failed = False
+        self._magnifier = None
+        self._preview_interval = 33
         self._selection_clicked_point = None
         self._preview_failed = False
         self._preview_config = config
@@ -524,6 +541,7 @@ class ClickerApp:
         self._preview_job = self.root.after(0, self.update_point_preview)
 
     def update_point_preview(self):
+        started = time.monotonic()
         self._preview_job = None
         if self._shutting_down or self.clicker.is_running or self._preview_kind is None:
             return
@@ -557,9 +575,27 @@ class ClickerApp:
                     self._selection_preview.set_color(sampled)
                 if self._preview_swatch is not None and self._preview_swatch.winfo_exists():
                     self._preview_swatch.configure(bg=sampled)
-        self._preview_job = self.root.after(20, self.update_point_preview)
+            if os.name == "nt" and not getattr(self, "_magnifier_failed", False):
+                try:
+                    if getattr(self, "_magnifier", None) is None:
+                        self._magnifier = SelectionMagnifier(self.root)
+                    self._magnifier.show_point(x, y)
+                except (OSError, tk.TclError):
+                    self._magnifier_failed = True
+                    LOGGER.exception("Büyüteç gösterilemedi")
+                    magnifier = getattr(self, "_magnifier", None)
+                    if magnifier is not None:
+                        magnifier.destroy()
+                        self._magnifier = None
+        elapsed = time.monotonic()-started
+        interval = 67 if elapsed > 0.025 else 33
+        self._preview_job = self.root.after(max(1, interval-int(elapsed*1000)), self.update_point_preview)
 
     def stop_point_preview(self):
+        magnifier = getattr(self, "_magnifier", None)
+        if magnifier is not None:
+            magnifier.destroy()
+            self._magnifier = None
         job = getattr(self, "_preview_job", None)
         if job is not None:
             self.root.after_cancel(job)
@@ -675,9 +711,9 @@ class ClickerApp:
                         if not self.clicker.is_running and any(config is item for item in self.key_configs):
                             if color:
                                 self.log_queue.put(("pixel_capture", (config, x, y, color, button, coord_lbl, preview, bounds)))
-                                self.clicker.log(f"Seçilen fiziksel piksel ({x}, {y}); ekran sınırları: {bounds}")
+                                LOGGER.info("Seçilen fiziksel piksel (%s, %s); ekran: %s", x, y, bounds)
                             else:
-                                self.clicker.log("Oyun pikseli okunamadı veya ekran modu değişti; önceki hedef korundu.")
+                                self.clicker.log("Nokta okunamadı. Tekrar seçin.")
                 elif msg_type in {"pixel_capture", "click_capture"} and self.clicker.is_running:
                     self.log_queue.task_done()
                     processed += 1
@@ -692,13 +728,14 @@ class ClickerApp:
                     self.save_current_configs_to_profiles(update_workers=False)
                     
                     if btn.winfo_exists():
-                        btn.configure(text="Piksel Seç", bg=self.input_bg, fg=self.text_primary)
+                        btn.configure(text="İzleme Seç", bg=self.input_bg, fg=self.text_primary)
                     if lbl.winfo_exists():
                         lbl.configure(text=f" ({x}, {y})")
                     if preview.winfo_exists():
                         preview.configure(bg=color)
                         
-                    self.clicker.log(f"Hedef piksel seçildi: {config.key.upper()} ({x}, {y}) - Renk: {color}")
+                    LOGGER.info("İzleme hedefi %s: (%s, %s) renk=%s", config.id_token, x, y, color)
+                    self.clicker.log("İzleme noktası seçildi.")
                     self.draw_markers()
                 elif msg_type == "click_capture":
                     config, x, y, btn, lbl = data
@@ -707,11 +744,12 @@ class ClickerApp:
                     self.save_current_configs_to_profiles(update_workers=False)
                     
                     if btn.winfo_exists():
-                        btn.configure(text="Konum Seç", bg=self.input_bg, fg=self.text_primary)
+                        btn.configure(text="Tıklama Seç", bg=self.input_bg, fg=self.text_primary)
                     if lbl.winfo_exists():
                         lbl.configure(text=f" ({x}, {y})")
                         
-                    self.clicker.log(f"{config.key.upper()} tıklama konumu seçildi: ({x}, {y})")
+                    LOGGER.info("Tıklama hedefi %s: (%s, %s)", config.id_token, x, y)
+                    self.clicker.log("Tıklama noktası seçildi.")
                     self.draw_markers()
                 self.log_queue.task_done()
                 processed += 1
@@ -771,6 +809,35 @@ class ClickerApp:
         self.log_text.pack(side="left", fill="both", expand=True)
         self.log_text.bind("<ButtonPress-1>", self.begin_log_selection)
         self.log_text.bind("<ButtonRelease-1>", self.end_log_selection)
+
+    def restore_log_panel_height(self):
+        if self._shutting_down:
+            return
+        available = self.content_split.winfo_height()
+        height = getattr(self.clicker.app_config, "log_panel_height", 120)
+        if available >= 267:
+            self.content_split.sash_place(0, 0, max(180, available-7-max(80, height)))
+
+    def clamp_log_panel(self, _event=None):
+        if self._shutting_down:
+            return
+        available = self.content_split.winfo_height()
+        if available < 267:
+            return
+        y = self.content_split.sash_coord(0)[1]
+        bounded = max(180, min(available-87, y))
+        if bounded != y:
+            self.content_split.sash_place(0, 0, bounded)
+
+    def save_log_panel_height(self, _event=None):
+        self.clamp_log_panel()
+        height = max(80, self.console_area.winfo_height())
+        if self.clicker.app_config.log_panel_height != height:
+            self.clicker.app_config.log_panel_height = height
+            try:
+                save_config(self.clicker.app_config)
+            except RuntimeError:
+                LOGGER.exception("Kayıt paneli boyutu saklanamadı")
 
 
     def clear_console_logs(self):
@@ -873,6 +940,7 @@ class ClickerApp:
 
     @editable_only
     def on_profile_changed(self, event=None):
+        self.finish_group_drag(None)
         if self.profile_var.get().strip() == self.active_profile:
             return
         focused = self.root.focus_get()
@@ -1286,16 +1354,79 @@ class ClickerApp:
         self.move_group_key(group, macro_id, target)
 
     def start_group_drag(self, event, group, macro_id):
-        if self.clicker.is_running:
+        if self.clicker.is_running or not group.enabled:
             return
+        self.finish_group_drag(None)
         self._group_drag = (group, macro_id)
-        line = tk.Frame(self.list_container.canvas, bg=self.accent_color, height=2)
-        self._group_drop_line = line
-        self.drag_group_key(event)
+        self._group_drag_origin = (event.x_root, event.y_root)
+        self._group_drag_started = False
+        self._group_drag_handle = event.widget
+        event.widget.grab_set()
+
+    def check_drag_focus(self, _event=None):
+        if getattr(self, "_group_drag", None):
+            self.root.after_idle(self._cancel_unfocused_drag)
+
+    def _cancel_unfocused_drag(self):
+        if not self._shutting_down and self.root.focus_get() is None:
+            self.finish_group_drag(None)
+
+    def _create_drag_preview(self):
+        from .platform_win import make_overlay_passive
+        group, macro_id = self._group_drag
+        config = self._find_config(macro_id)
+        roles, _ = writing_layout(group)
+        role, _block = roles.get(macro_id, (None, None))
+        label = "Yazı bölümü" if role == "open" else "Tuş kartı"
+        window = tk.Toplevel(self.root)
+        window.withdraw()
+        window.overrideredirect(True)
+        window.attributes("-topmost", True)
+        window.attributes("-alpha", 0.90)
+        window.configure(bg=self.accent_color, padx=2, pady=2)
+        body = tk.Frame(window, bg=self.card_color, padx=12, pady=8)
+        body.pack(fill="both")
+        tk.Label(body, text=f"⠿  {config.key.upper() if config else 'Tuş'}",
+                 bg=self.card_color, fg=self.text_primary,
+                 font=("Segoe UI", 10, "bold")).pack(anchor="w")
+        tk.Label(body, text=f"{label} · Bırakarak sırala", bg=self.card_color,
+                 fg=self.text_secondary, font=("Segoe UI", 8)).pack(anchor="w")
+        window.update_idletasks()
+        self._group_drag_preview_handle = make_overlay_passive(window.winfo_id())
+        self._group_drag_preview = window
+        source = next((card for key, card in self._group_cards.get(group.id_token, [])
+                       if key == macro_id), None)
+        if source is not None:
+            placeholder = tk.Frame(source, bg=self.bg_color, highlightthickness=2,
+                                   highlightbackground=self.accent_color)
+            placeholder.place(x=0, y=0, relwidth=1, relheight=1)
+            tk.Label(placeholder, text="⠿  Taşınıyor…", bg=self.bg_color,
+                     fg=self.text_secondary).place(relx=.5, rely=.5, anchor="center")
+            self._group_drag_placeholder = placeholder
 
     def drag_group_key(self, event):
         if self.clicker.is_running or not getattr(self, "_group_drag", None):
             return
+        if not self._group_drag_started:
+            x, y = self._group_drag_origin
+            if max(abs(event.x_root-x), abs(event.y_root-y)) < 5:
+                return
+            self._group_drag_started = True
+            self._group_drop_line = tk.Frame(self.list_container.canvas,
+                                             bg=self.accent_color, height=3)
+            self._create_drag_preview()
+        preview = self._group_drag_preview
+        # Keep the preview inside the visible list; no desktop coordinate ambiguity.
+        width, height = preview.winfo_reqwidth(), preview.winfo_reqheight()
+        x = max(self.root.winfo_rootx(), min(event.x_root+16,
+                self.root.winfo_rootx()+self.root.winfo_width()-width))
+        y = max(self.root.winfo_rooty(), min(event.y_root+16,
+                self.root.winfo_rooty()+self.root.winfo_height()-height))
+        preview.geometry(f"{width}x{height}{x:+d}{y:+d}")
+        preview.deiconify()
+        if os.name == "nt":
+            from .platform_win import move_overlay
+            move_overlay(self._group_drag_preview_handle, x, y, width, height)
         self._group_drag_pointer = event.y_root
         self._paint_group_drop()
         if not getattr(self, "_group_drag_job", None):
@@ -1333,7 +1464,21 @@ class ClickerApp:
 
     def finish_group_drag(self, event):
         drag = getattr(self, "_group_drag", None)
+        started = getattr(self, "_group_drag_started", False)
         self._group_drag = None
+        self._group_drag_started = False
+        handle = getattr(self, "_group_drag_handle", None)
+        if handle is not None:
+            try:
+                handle.grab_release()
+            except tk.TclError:
+                pass
+            self._group_drag_handle = None
+        for name in ("_group_drag_preview", "_group_drag_placeholder"):
+            widget = getattr(self, name, None)
+            if widget is not None:
+                widget.destroy()
+                setattr(self, name, None)
         job = getattr(self, "_group_drag_job", None)
         if job:
             self.root.after_cancel(job)
@@ -1342,21 +1487,24 @@ class ClickerApp:
         if line is not None:
             line.destroy()
             self._group_drop_line = None
-        if drag and event is not None:
+        if drag and started and event is not None and not self.clicker.is_running:
             group, macro_id = drag
-            self.move_group_key(group, macro_id, self._group_drag_target)
+            canvas = self.list_container.canvas
+            if (canvas.winfo_rootx() <= event.x_root < canvas.winfo_rootx()+canvas.winfo_width()
+                    and canvas.winfo_rooty() <= event.y_root < canvas.winfo_rooty()+canvas.winfo_height()):
+                self.move_group_key(group, macro_id, self._group_drag_target)
 
     def draw_sequence_group(
         self,
         group: SequenceGroup,
         parent: tk.Misc,
     ) -> None:
-        border_color = "#384d66"
+        border_color = "#7597bd"
         outer = tk.Frame(
             parent,
             bg=border_color,
-            padx=1,
-            pady=1,
+            padx=2,
+            pady=2,
         )
         outer.pack(fill="x", padx=1, pady=(3, 8))
 
@@ -1486,7 +1634,7 @@ class ClickerApp:
             outer = widgets.get("outer")
             group = next((g for g in self.sequence_groups if g.id_token == group_id), None)
             if outer and outer.winfo_exists():
-                color = self.border_color if group is not None and not group.enabled else self.success_color if active else "#384d66"
+                color = "#60738b" if group is not None and not group.enabled else self.success_color if active else "#7597bd"
                 if outer.cget("bg") != color:
                     outer.configure(bg=color)
 
@@ -1672,7 +1820,7 @@ class ClickerApp:
                 lambda _v: self.toggle_writing(group, config.id_token))
 
         screen_frame = tk.Frame(card, bg=self.card_color)
-        pixel_btn = tk.Button(screen_frame, text="Piksel Seç", font=("Segoe UI", 8),
+        pixel_btn = tk.Button(screen_frame, text="İzleme Seç", font=("Segoe UI", 8),
             bg=self.input_bg, fg=self.text_primary, bd=0, highlightthickness=0, activebackground=self.border_color,
             activeforeground="white", padx=7, pady=3)
         pixel_btn.pack(side="left")
@@ -1685,7 +1833,7 @@ class ClickerApp:
         pixel_btn.configure(command=lambda cfg=config, btn=pixel_btn, lbl=coord_lbl, preview=color_preview: self.start_pixel_capture(cfg, btn, lbl, preview))
 
         click_frame = tk.Frame(card, bg=self.card_color)
-        loc_btn = tk.Button(click_frame, text="Konum Seç", font=("Segoe UI", 8),
+        loc_btn = tk.Button(click_frame, text="Tıklama Seç", font=("Segoe UI", 8),
             bg=self.input_bg, fg=self.text_primary, bd=0, highlightthickness=0, activebackground=self.border_color,
             activeforeground="white", padx=7, pady=3)
         loc_btn.pack(side="left")
@@ -1808,13 +1956,13 @@ class ClickerApp:
         click_pending = getattr(self, "_pending_click_pick", None)
         self._pending_click_pick = None
         if click_pending is not None and click_pending[1].winfo_exists():
-            click_pending[1].configure(text="Konum Seç", bg=self.input_bg, fg=self.text_primary)
+            click_pending[1].configure(text="Tıklama Seç", bg=self.input_bg, fg=self.text_primary)
         self.stop_point_preview()
         self.clicker.pixel_capture_callback = None
         self.clicker.pixel_capture_cancel_callback = None
         self.clicker._pixel_capture_down = None
         if pending is not None and pending[1].winfo_exists():
-            pending[1].configure(text="Piksel Seç", bg=self.input_bg, fg=self.text_primary)
+            pending[1].configure(text="İzleme Seç", bg=self.input_bg, fg=self.text_primary)
 
     @editable_only
     def start_pixel_capture(self, config: KeyConfig, button: tk.Button, coord_lbl: tk.Label, color_preview: tk.Canvas):
@@ -1859,18 +2007,21 @@ class ClickerApp:
         preview = getattr(self, "_selection_preview", None)
         if preview is not None and preview.winfo_exists():
             preview.withdraw()
+        magnifier = getattr(self, "_magnifier", None)
+        if magnifier is not None:
+            magnifier.withdraw()
         self.protect_marker_pixels(extra=((x, y),))
         self.root.update_idletasks()
         flush_desktop()
         bounds, color = None, ""
         try:
-            self.enqueue_log(f"Piksel seçim ortamı: {foreground_description()}")
+            LOGGER.debug("Piksel seçim ortamı: %s", foreground_description())
             bounds = screen_bounds()
             color = get_pixel_color_win32(x, y)
             if bounds != screen_bounds():
                 color = ""
         except Exception as error:
-            self.enqueue_log(f"Piksel seçimi başarısız: {error}")
+            LOGGER.exception("Piksel seçimi başarısız: %s", error)
         self.log_queue.put(("pixel_pick_result", (pending, x, y, color, bounds)))
 
     def sample_uncovered_pixel(self, x: int, y: int, overlay=None) -> str:
@@ -1896,14 +2047,14 @@ class ClickerApp:
         overlay.destroy()
         if not color:
             if button.winfo_exists():
-                button.configure(text="Piksel Seç", bg=self.input_bg, fg=self.text_primary)
+                button.configure(text="İzleme Seç", bg=self.input_bg, fg=self.text_primary)
             self.clicker.log("Piksel okunamadı; önceki hedef korundu.")
             return
         self.log_queue.put(("pixel_capture", (config, x, y, color, button, coord_lbl, color_preview)))
 
     def cancel_overlay_capture(self, overlay, button):
         overlay.destroy()
-        button.configure(text="Piksel Seç", bg=self.input_bg, fg=self.text_primary)
+        button.configure(text="İzleme Seç", bg=self.input_bg, fg=self.text_primary)
         self.clicker.log("Piksel seçimi iptal edildi.")
 
     @editable_only
@@ -2085,7 +2236,7 @@ class ClickerApp:
         self._capture_overlay = None
         for config in self.key_configs:
             widgets = self.config_widgets.get(id(config), {})
-            for name, label in (("key_btn", config.key.upper()), ("pixel_btn", "Piksel Seç"), ("loc_btn", "Konum Seç")):
+            for name, label in (("key_btn", config.key.upper()), ("pixel_btn", "İzleme Seç"), ("loc_btn", "Tıklama Seç")):
                 if name in widgets:
                     widgets[name].configure(text=label)
         if not isinstance(self.root.focus_get(), tk.Text):

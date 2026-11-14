@@ -1,15 +1,23 @@
 """Curated notes bundled with the matching application release."""
 
 CURRENT_NOTES = (
+    'Grup çerçeveleri belirginleşti; kilitli grupların sınırları da görünür kalır.',
+    'İzleme Seç ve Tıklama Seç sırasında uzak köşede canlı, renk çerçeveli büyüteç gösterilir.',
+    'Kartlar tutamaçtan önizleme ve yer tutucu ile sürüklenir; Esc ile iptal edilir.',
+    'Kartların üzerinde tekerlek ve hassas kaydırma düzeltildi.',
+    'Kayıtlar üst ayırıcısından boyutlandırılır; panel yüksekliği hatırlanır.',
+    'Kayıtlar sadeleşti; renk kodları ve teknik teşhisler dosya günlüğüne taşındı.',
+)
+
+HISTORY = (
+    ("2.1.12", (
     'Kartlar kalıcı kimlikleriyle güncellenir; ekleme, sıralama, yazı ve grup kilidinde liste baştan çizilmez.',
     'Son üç profil görünümü ve kaydırma konumu saklanır; geri geçişte mevcut kartlar yeniden kullanılır.',
     'Belirgin kart yüzeyleri, koyu giriş alanları ve yazı bölümleri için renk şeridi eklendi.',
     'Sıralama okları ve sürükleme tutamacı Sil düğmesinin hemen üstüne taşındı.',
     'Yalnızca çalışma biçimi değişen tuş çalışanı yenilenir; süre ve renk ayarları diğer çalışanları etkilemez.',
     'Değişmeyen alanlarda gereksiz kayıt ve motor yenileme kaldırıldı; kaydırma yerleşimi birleştirilir.',
-)
-
-HISTORY = (
+    )),
     ("2.1.11", (
         'Grup başlığındaki yuvarlak kaldırıldı; grubun tamamı bağımsız seçim kutusuyla açılıp kilitlenir.',
         'Kilitli gruplar ve pasif tuşlar çok soluk görünür; grup kilidi tuşların Aktif ayarlarını değiştirmez.',

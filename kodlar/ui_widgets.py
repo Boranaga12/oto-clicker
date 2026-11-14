@@ -45,8 +45,10 @@ class ScrollableFrame(tk.Frame):
         self.scrollable_frame.bind("<Configure>", self._update_scroll_region)
         self.bind("<Destroy>", self._cleanup_layout, add="+")
         self.canvas.bind("<Configure>", self._resize_content)
-        self.canvas.bind("<Enter>", self._bind_mousewheel)
-        self.canvas.bind("<Leave>", self._unbind_mousewheel)
+        self._wheel_remainder = 0.0
+        self._wheel_binding = self.winfo_toplevel().bind(
+            "<MouseWheel>", self._on_mousewheel, add="+"
+        )
         self.canvas.pack(side="left", fill="both", expand=True)
         self.scrollbar.pack(side="right", fill="y")
 
@@ -59,23 +61,34 @@ class ScrollableFrame(tk.Frame):
         self.canvas.configure(scrollregion=self.canvas.bbox("all"))
 
     def _cleanup_layout(self, event):
-        if event.widget is self and self._region_job is not None:
-            self.after_cancel(self._region_job)
-            self._region_job = None
+        if event.widget is self:
+            if self._region_job is not None:
+                self.after_cancel(self._region_job)
+                self._region_job = None
+            if self._wheel_binding:
+                self.winfo_toplevel().unbind("<MouseWheel>", self._wheel_binding)
+                self._wheel_binding = None
 
     def _resize_content(self, event: tk.Event) -> None:
         if event.width != self._content_width:
             self._content_width = event.width
             self.canvas.itemconfigure(self.canvas_window, width=event.width)
 
-    def _bind_mousewheel(self, _event: tk.Event) -> None:
-        self.canvas.bind_all("<MouseWheel>", self._on_mousewheel)
-
-    def _unbind_mousewheel(self, _event: tk.Event) -> None:
-        self.canvas.unbind_all("<MouseWheel>")
-
     def _on_mousewheel(self, event: tk.Event) -> None:
-        self.canvas.yview_scroll(-(event.delta // 120), "units")
+        # Route by pointer ancestry, including every child card and input.
+        target = self.winfo_containing(event.x_root, event.y_root)
+        while target is not None and target is not self:
+            if isinstance(target, (tk.Text, tk.Listbox)):
+                return
+            target = getattr(target, "master", None)
+        if target is not self:
+            return
+        self._wheel_remainder += -event.delta / 120
+        units = int(self._wheel_remainder)
+        self._wheel_remainder -= units
+        if units:
+            self.canvas.yview_scroll(units, "units")
+        return "break"
 
 
 class PointMarker(tk.Toplevel):
