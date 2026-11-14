@@ -12,13 +12,12 @@ import threading
 import tkinter as tk
 from tkinter import messagebox, simpledialog
 
-from pynput.mouse import Button
 
 from . import __version__
 from .app_paths import data_directory
 from .updater import prepare_update, schedule_install
 from .release_notes import CURRENT_NOTES, HISTORY
-from .config import AppConfig, save_config
+from .config import save_config
 from .engine import RandomizedAutoClicker
 from .models import (
     KeyConfig,
@@ -28,7 +27,7 @@ from .models import (
     new_id,
 )
 from .platform_win import flush_desktop, get_pixel_color_win32, screen_bounds, foreground_is_ours, foreground_description, physical_cursor_position
-from .profile_store import load_profiles, reset_profiles, save_profiles
+from .profile_store import load_profiles, save_profiles
 from .sequences import (
     SequenceGroup,
     WritingBlock, writing_layout, move_group_item,
@@ -269,7 +268,7 @@ class ClickerApp:
         self.content_split = tk.PanedWindow(
             self.root, orient="vertical", bg=self.border_color, sashwidth=7,
             sashrelief="flat", showhandle=True, handlesize=10, bd=0,
-            opaqueresize=True, cursor="sb_v_double_arrow",
+            opaqueresize=True, cursor="arrow", sashcursor="sb_v_double_arrow",
         )
         self.content_split.pack(fill="both", expand=True, padx=10, pady=(5, 10))
         self.list_container = ScrollableFrame(self.content_split, background=self.bg_color)
@@ -423,76 +422,6 @@ class ClickerApp:
         )
         return menu_btn
 
-    @editable_only
-    def on_marker_press(self, marker_window, event):
-        marker_window._drag_x = event.x
-        marker_window._drag_y = event.y
-        marker_window._pending_pixel = None
-
-    def focus_through_overlay(self, overlay: tk.Toplevel, x: int, y: int) -> None:
-        """Ana GUI döngüsünü bloklamadan alttaki pencereye odak tıklaması ilet."""
-        overlay.withdraw()
-
-        def forward_click() -> None:
-            if not overlay.winfo_exists():
-                return
-            with self.clicker.input_lock:
-                original = self.clicker.mouse.position
-                try:
-                    self.clicker.mouse.position = (x, y)
-                    self.clicker.mouse.click(Button.left)
-                finally:
-                    self.clicker.mouse.position = original
-            self.root.after(200, restore_overlay)
-
-        def restore_overlay() -> None:
-            if overlay.winfo_exists():
-                overlay.deiconify()
-                overlay.lift()
-                overlay.focus_force()
-
-        self.root.after(50, forward_click)
-
-    @editable_only
-    def on_marker_drag(self, marker_window, event, config, marker_type):
-        dx = event.x - marker_window._drag_x
-        dy = event.y - marker_window._drag_y
-        x = marker_window.winfo_x() + dx
-        y = marker_window.winfo_y() + dy
-        
-        center_x = x + 50
-        center_y = y + 28
-        
-        if marker_type == "screen":
-            marker_window._pending_pixel = (center_x, center_y)
-        elif marker_type == "click":
-            config.click_x = center_x
-            config.click_y = center_y
-            cfg_id = id(config)
-            if cfg_id in self.config_widgets:
-                self.config_widgets[cfg_id]["loc_lbl"].configure(text=f" ({center_x}, {center_y})")
-        marker_window.geometry(f"100x40+{x}+{y}")
-        if marker_type != "screen":
-            self.schedule_marker_save()
-
-    @editable_only
-    def on_screen_marker_release(self, marker, config):
-        pending = getattr(marker, "_pending_pixel", None)
-        if pending is None:
-            return
-        marker._pending_pixel = None
-        x, y = pending
-        color = self.sample_uncovered_pixel(x, y)
-        widgets = self.config_widgets.get(id(config))
-        if color and widgets:
-            self.log_queue.put(("pixel_capture", (
-                config, x, y, color, widgets["pixel_btn"],
-                widgets["coord_lbl"], widgets["color_preview"],
-            )))
-        else:
-            marker.geometry(f"100x40+{config.pixel_x-50}+{config.pixel_y-28}")
-            self.clicker.log("Piksel okunamadı; önceki hedef korundu.")
-
     def draw_markers(self):
         if self._shutting_down:
             return
@@ -532,7 +461,6 @@ class ClickerApp:
         self._preview_kind = kind
         self._magnifier_failed = False
         self._magnifier = None
-        self._preview_interval = 33
         self._selection_clicked_point = None
         self._preview_failed = False
         self._preview_config = config
@@ -567,19 +495,12 @@ class ClickerApp:
             elif self._selection_preview is not None and self._selection_preview.point != (x, y):
                 self._selection_preview.move(x, y)
             self.protect_marker_pixels(extra=((x, y),))
-            self.root.update_idletasks()
-            flush_desktop()
-            sampled = get_pixel_color_win32(x, y)
-            if sampled:
-                if self._selection_preview is not None:
-                    self._selection_preview.set_color(sampled)
-                if self._preview_swatch is not None and self._preview_swatch.winfo_exists():
-                    self._preview_swatch.configure(bg=sampled)
+            sampled = ""
             if os.name == "nt" and not getattr(self, "_magnifier_failed", False):
                 try:
                     if getattr(self, "_magnifier", None) is None:
                         self._magnifier = SelectionMagnifier(self.root)
-                    self._magnifier.show_point(x, y)
+                    sampled = self._magnifier.show_point(x, y)
                 except (OSError, tk.TclError):
                     self._magnifier_failed = True
                     LOGGER.exception("Büyüteç gösterilemedi")
@@ -587,6 +508,14 @@ class ClickerApp:
                     if magnifier is not None:
                         magnifier.destroy()
                         self._magnifier = None
+            if not sampled:
+                sampled = get_pixel_color_win32(x, y)
+            if sampled:
+                if self._selection_preview is not None:
+                    self._selection_preview.set_color(sampled)
+                if self._preview_swatch is not None and self._preview_swatch.winfo_exists():
+                    if self._preview_swatch.cget("bg") != sampled:
+                        self._preview_swatch.configure(bg=sampled)
         elapsed = time.monotonic()-started
         interval = 67 if elapsed > 0.025 else 33
         self._preview_job = self.root.after(max(1, interval-int(elapsed*1000)), self.update_point_preview)
@@ -1027,40 +956,6 @@ class ClickerApp:
         self.profiles_data["active_profile"] = name
         self.save_profile_document()
         self.refresh_profile_combobox()
-
-    @editable_only
-    def reset_all_profiles(self) -> None:
-        if not messagebox.askyesno(
-            "Tümünü Sıfırla",
-            "Tüm profiller, gruplar ve tuş atamaları silinsin mi?\n"
-            "Başlat/durdur kısayolu ESC olarak sıfırlanacak.",
-            parent=self.root,
-        ):
-            return
-        if self.clicker.is_running:
-            return
-        self.cancel_pixel_pick()
-        self.clicker.set_enabled(False)
-        if self._marker_save_job is not None:
-            self.root.after_cancel(self._marker_save_job)
-            self._marker_save_job = None
-        self.clicker.configure([], sequence_groups=[])
-        try:
-            data = reset_profiles()
-            config = AppConfig()
-            save_config(config)
-        except RuntimeError as exc:
-            messagebox.showerror("Sıfırlama Hatası", str(exc), parent=self.root)
-            return
-        self.profiles_data = data
-        self.active_profile = data["active_profile"]
-        self.key_configs = []
-        self.sequence_groups = []
-        self.active_group_ids.clear()
-        self.clicker.app_config = config
-        self.panic_btn.configure(text=config.panic_key.upper())
-        self.refresh_profile_combobox()
-        self.refresh_keys_list_ui()
 
     @editable_only
     def delete_profile(self):
@@ -2051,11 +1946,6 @@ class ClickerApp:
             self.clicker.log("Piksel okunamadı; önceki hedef korundu.")
             return
         self.log_queue.put(("pixel_capture", (config, x, y, color, button, coord_lbl, color_preview)))
-
-    def cancel_overlay_capture(self, overlay, button):
-        overlay.destroy()
-        button.configure(text="İzleme Seç", bg=self.input_bg, fg=self.text_primary)
-        self.clicker.log("Piksel seçimi iptal edildi.")
 
     @editable_only
     def start_click_capture(self, config: KeyConfig, button: tk.Button, loc_lbl: tk.Label):

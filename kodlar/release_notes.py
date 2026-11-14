@@ -1,11 +1,17 @@
 """Curated notes bundled with the matching application release."""
 
 CURRENT_NOTES = (
-    'Windows zamanlayıcısı erken döndüğünde tıklama aralığının kısalması düzeltildi.',
-    'Beklemeler gerçek geçen süreyle hesaplanır; yazı sırasında kalan süre korunur.',
+    'Boyutlandırma imleci yalnızca kayıt panelinin ayırıcısında gösterilir.',
+    'Büyüteç 335 piksele ve 13 kat yakınlaştırmaya yükseltildi.',
+    'Değişmeyen büyüteç kareleri tekrar çizilmez; renk örnekleme ve görüntü dönüşümü hafifletildi.',
+    'Kullanılmayan eski seçim, işaretçi sürükleme ve sıfırlama kodları temizlendi.',
 )
 
 HISTORY = (
+    ("2.1.14", (
+    'Windows zamanlayıcısı erken döndüğünde tıklama aralığının kısalması düzeltildi.',
+    'Beklemeler gerçek geçen süreyle hesaplanır; yazı sırasında kalan süre korunur.',
+    )),
     ("2.1.13", (
     'Grup çerçeveleri belirginleşti; kilitli grupların sınırları da görünür kalır.',
     'İzleme Seç ve Tıklama Seç sırasında uzak köşede canlı, renk çerçeveli büyüteç gösterilir.',
