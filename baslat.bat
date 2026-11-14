@@ -6,7 +6,6 @@ set "BASE_PYTHON="
 set "BASE_ARGS="
 set "VENV_DIR=%~dp0.venv"
 set "VENV_PYTHON=%~dp0.venv\Scripts\python.exe"
-set "VENV_PYTHONW=%~dp0.venv\Scripts\pythonw.exe"
 set "REQUIREMENTS=%~dp0kodlar\requirements.txt"
 set "REQUIREMENTS_STAMP=%~dp0.venv\requirements.installed"
 
@@ -62,23 +61,16 @@ if errorlevel 1 (
 copy /y "%REQUIREMENTS%" "%REQUIREMENTS_STAMP%" >nul
 
 :launch
-"%VENV_PYTHON%" -c "import kodlar.main" >nul 2>&1
-if errorlevel 1 (
-    echo HATA: Uygulama modulleri yuklenemedi.
-    echo Ayrintili denetim icin: .venv\Scripts\python.exe -m kodlar.main
-    goto failure
-)
-
 if defined OTO_CLICKER_VALIDATE_ONLY (
-    echo Baslatma denetimi basarili: %VENV_PYTHON%
+    "%VENV_PYTHON%" -c "import kodlar.main"
+    if errorlevel 1 goto failure
+    echo Baslatma denetimi basarili.
     exit /b 0
 )
 
-if exist "%VENV_PYTHONW%" (
-    start "" "%VENV_PYTHONW%" -m kodlar.main
-) else (
-    start "" "%VENV_PYTHON%" -m kodlar.main
-)
+rem Bekleyerek calistir: acilis hatasi olursa pencereyi kapatma.
+"%VENV_PYTHON%" -u -X faulthandler -m kodlar.main
+if errorlevel 1 goto failure
 exit /b 0
 
 :failure

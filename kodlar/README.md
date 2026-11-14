@@ -6,7 +6,8 @@ uygulaması.
 ## Çalıştırma
 
 Proje kökündeki `baslat.bat` dosyasına çift tıklayın. Python 3.10 veya daha yenisini bilgisayarınıza bir kez kurun. Başlatıcı mevcut Python
-kurulumunu seçer, eksik bağımlılıkları yükler ve uygulamayı konsolsuz açar.
+kurulumunu seçer ve eksik bağımlılıkları yükler. Başlatıcı penceresi uygulama
+çalışırken açık kalır; açılış hatası olursa hata metni görüntülenir.
 
 Terminalden çalıştırmak için:
 

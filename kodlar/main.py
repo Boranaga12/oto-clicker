@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import sys
 import threading
+import traceback
 import tkinter as tk
 from logging.handlers import RotatingFileHandler
 from tkinter import messagebox
@@ -96,8 +97,15 @@ def main() -> None:
         instance_lock.release()
 
 
-if __name__ == "__main__":
+def cli() -> int:
     try:
         main()
     except Exception:
-        sys.exit(1)
+        # python.exe is supervised by baslat.bat; preserve the failure evidence.
+        traceback.print_exc()
+        return 1
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(cli())
