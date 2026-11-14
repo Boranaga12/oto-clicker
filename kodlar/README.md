@@ -6,8 +6,10 @@ uygulaması.
 ## Çalıştırma
 
 Proje kökündeki `baslat.bat` dosyasına çift tıklayın. Python 3.10 veya daha yenisini bilgisayarınıza bir kez kurun. Başlatıcı mevcut Python
-kurulumunu seçer ve eksik bağımlılıkları yükler. Başlatıcı penceresi uygulama
-çalışırken açık kalır; açılış hatası olursa hata metni görüntülenir.
+kurulumunu seçer ve eksik bağımlılıkları yükler. Normal açılışta komut
+penceresi kapanır. Açılış hataları bir ileti kutusunda gösterilir ve
+`%APPDATA%\ArikMakro\startup-error.log` dosyasına kaydedilir.
+Konsolda ayrıntılı inceleme için `hata_ayikla.bat` dosyasını çalıştırın.
 
 Terminalden çalıştırmak için:
 

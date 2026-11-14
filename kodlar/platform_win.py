@@ -122,3 +122,15 @@ def enable_dpi_awareness() -> None:
             ctypes.windll.user32.SetProcessDPIAware()
         except (AttributeError, OSError):
             pass
+
+
+def set_application_identity() -> None:
+    """Keep the application's own icon and grouping in the Windows taskbar."""
+    if os.name != "nt":
+        return
+    try:
+        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(
+            ctypes.c_wchar_p("Boranaga12.ArikMakro")
+        )
+    except (AttributeError, OSError):
+        pass

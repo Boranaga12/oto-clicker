@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import queue
+import os
+from pathlib import Path
 import time
 import tkinter as tk
 from tkinter import messagebox, simpledialog
@@ -60,11 +62,15 @@ class ClickerApp:
         
         self.root.configure(bg=self.bg_color)
         self.root.title("Arık Makro")
-        self.root.geometry("560x640")
-        
-        # İç içe grup kartları için okunabilir, kullanıcı tarafından ayarlanabilir alan.
-        self.root.resizable(True, True)
+        self.root.geometry("480x640")
+        self.root.resizable(False, True)
         self.root.minsize(480, 360)
+        self.root.maxsize(480, self.root.winfo_screenheight())
+        icon_directory = Path(__file__).with_name("assets")
+        self._window_icon = tk.PhotoImage(file=str(icon_directory / "mouse.png"))
+        self.root.iconphoto(True, self._window_icon)
+        if os.name == "nt":
+            self.root.iconbitmap(str(icon_directory / "mouse.ico"))
         
         # En ustte kalma (Always on Top) varsayilan etkin
         self.root.attributes("-topmost", True)

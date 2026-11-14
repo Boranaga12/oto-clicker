@@ -6,6 +6,7 @@ set "BASE_PYTHON="
 set "BASE_ARGS="
 set "VENV_DIR=%~dp0.venv"
 set "VENV_PYTHON=%~dp0.venv\Scripts\python.exe"
+set "VENV_PYTHONW=%~dp0.venv\Scripts\pythonw.exe"
 set "REQUIREMENTS=%~dp0kodlar\requirements.txt"
 set "REQUIREMENTS_STAMP=%~dp0.venv\requirements.installed"
 
@@ -68,7 +69,13 @@ if defined OTO_CLICKER_VALIDATE_ONLY (
     exit /b 0
 )
 
-rem Bekleyerek calistir: acilis hatasi olursa pencereyi kapatma.
+if defined OTO_CLICKER_DEBUG goto debug_launch
+if not exist "%VENV_PYTHONW%" goto debug_launch
+start "" "%VENV_PYTHONW%" -m kodlar.launcher
+exit /b 0
+
+:debug_launch
+rem Hata ayiklamada konsolu acik tut.
 "%VENV_PYTHON%" -u -X faulthandler -m kodlar.main
 if errorlevel 1 goto failure
 exit /b 0
