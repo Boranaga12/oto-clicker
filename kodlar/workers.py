@@ -3,6 +3,7 @@ from __future__ import annotations
 import random
 import threading
 import time
+from enum import Enum
 from typing import Any, Protocol
 from collections.abc import Callable
 
@@ -24,6 +25,16 @@ MOUSE_NAMES = (
     | X1_MOUSE_NAMES
     | X2_MOUSE_NAMES
 )
+
+
+class StepResult(Enum):
+    SENT = "sent"
+    SKIPPED = "skipped"
+    CANCELLED = "cancelled"
+    ERROR = "error"
+
+    def __bool__(self):
+        return self is StepResult.SENT
 
 
 class EngineContext(Protocol):
@@ -76,6 +87,7 @@ class KeyClickerWorker(StoppableWorker):
         self.keyboard_controller = keyboard_controller
         self.clicker = clicker
         self.color_thread: threading.Thread | None = None
+        self.last_press_error: Exception | None = None
 
     @property
     def is_mouse(self) -> bool:
@@ -95,6 +107,18 @@ class KeyClickerWorker(StoppableWorker):
         return None
 
     def press_key(self, before_press: Callable[[], bool] | None = None) -> bool:
+        gate = getattr(self.clicker, "writing_gate", None)
+        if gate is None:
+            return self._press_key(before_press)
+        with gate.input(lambda: not self._can_run()) as admitted:
+            if not admitted:
+                return False
+            gate.check_focus()
+            self.clicker.observe_input_target()
+            return self._press_key(before_press)
+
+    def _press_key(self, before_press: Callable[[], bool] | None = None) -> bool:
+        self.last_press_error = None
         key_name = self.config.key.strip().lower()
         if not key_name:
             return False
@@ -104,6 +128,9 @@ class KeyClickerWorker(StoppableWorker):
             with self.clicker.input_lock:
                 if not self._can_run() or (before_press is not None and not before_press()):
                     return False
+                gate = getattr(self.clicker, "writing_gate", None)
+                if gate is not None:
+                    gate.check_focus()
                 if mouse_button is not None:
                     if self.config.has_click_target:
                         original = self.clicker.mouse.position
@@ -118,6 +145,8 @@ class KeyClickerWorker(StoppableWorker):
                                 or (before_press is not None and not before_press())
                             ):
                                 return False
+                            if gate is not None:
+                                gate.check_focus()
                             self.clicker.mark_injected_mouse(mouse_button)
                             self.clicker.mouse.press(mouse_button)
                             try:
@@ -161,6 +190,7 @@ class KeyClickerWorker(StoppableWorker):
             )
             return True
         except Exception as exc:
+            self.last_press_error = exc
             self.clicker.log_activity(
                 f"{self.config.id_token}:error",
                 f"Tetikleme hatası ({self.config.key}): {exc}",
@@ -206,13 +236,18 @@ class KeyClickerWorker(StoppableWorker):
         return True
 
     def _interruptible_delay(self, seconds: float, pixel_check: Any = None) -> bool:
-        deadline = time.monotonic() + max(0.0, seconds)
-        while not self.stop_event.is_set() and self._can_run():
-            remaining = deadline - time.monotonic()
+        remaining = max(0.0, seconds)
+        gate = getattr(self.clicker, "writing_gate", None)
+        while self._can_run():
             if remaining <= 0:
                 return True
-            if self.wait(min(0.05, remaining)):
+            step = min(0.02, remaining)
+            if gate is not None:
+                if gate.wait(step, lambda: not self._can_run()):
+                    return False
+            elif self.wait(step):
                 return False
+            remaining -= step
             if pixel_check is not None and pixel_check():
                 return False
         return False
@@ -272,15 +307,31 @@ class KeyClickerWorker(StoppableWorker):
                 if self.press_key(before_press=lambda: not color_returned()):
                     self.execute_chain_actions()
 
-    def press_once(self, cancel: threading.Event) -> bool:
+    def ready_for_writing(self) -> bool:
+        if not self.config.enabled:
+            return False
+        if not self.config.screen_mode:
+            return True
+        if not self.config.has_pixel_target:
+            return False
+        bounds = screen_bounds()
+        if self.config.pixel_screen_bounds is not None and bounds != self.config.pixel_screen_bounds:
+            return False
+        with PixelSampler() as pixels:
+            color = pixels.get(self.config.pixel_x, self.config.pixel_y)
+        return bool(color and not is_color_close(color, self.config.target_color,
+                                               threshold=MONITOR_COLOR_TOLERANCE))
+
+    def press_once(self, cancel: threading.Event) -> StepResult:
         """A group owns this worker and executes a single step synchronously."""
         def allowed():
             return not cancel.is_set() and self._can_run()
+        self.last_press_error = None
         if not allowed():
-            return False
+            return StepResult.CANCELLED if cancel.is_set() else StepResult.SKIPPED
         if self.config.screen_mode:
             if not self.config.has_pixel_target:
-                return False
+                return StepResult.SKIPPED
             target = (self.config.pixel_x, self.config.pixel_y, self.config.target_color, self.config.pixel_screen_bounds)
             with PixelSampler() as pixels:
                 def changed():
@@ -295,9 +346,14 @@ class KeyClickerWorker(StoppableWorker):
                 sent = self.press_key(before_press=changed)
         else:
             sent = self.press_key(before_press=allowed)
-        if sent and allowed():
+        gate = getattr(self.clicker, "writing_gate", None)
+        if sent and allowed() and (gate is None or gate.owner != threading.get_ident()):
             self.execute_chain_actions()
-        return sent
+        if sent:
+            return StepResult.SENT
+        if self.last_press_error is not None:
+            return StepResult.ERROR
+        return StepResult.CANCELLED if cancel.is_set() or not self.clicker.enabled_event.is_set() else StepResult.SKIPPED
 
     def run(self) -> None:
         if self.wait(random.uniform(0.05, 0.2)):

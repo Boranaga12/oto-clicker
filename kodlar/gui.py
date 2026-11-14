@@ -29,6 +29,7 @@ from .platform_win import flush_desktop, get_pixel_color_win32, screen_bounds, f
 from .profile_store import load_profiles, reset_profiles, save_profiles
 from .sequences import (
     SequenceGroup,
+    WritingBlock, writing_layout, move_group_item,
     flatten_groups,
     SequenceItem,
     group_macro_ids,
@@ -353,6 +354,7 @@ class ClickerApp:
 
     def shutdown(self) -> None:
         self._shutting_down = True
+        self.finish_group_drag(None)
         self.cancel_pixel_pick()
         if self._queue_job is not None:
             try:
@@ -1140,6 +1142,138 @@ class ClickerApp:
         )
         self.list_container.canvas.yview_moveto(1.0)
 
+    @editable_only
+    def toggle_writing(self, group, macro_id):
+        saved_blocks = [(b, b.opening, b.closing) for b in group.writing_blocks]
+        roles, _errors = writing_layout(group)
+        role, block = roles.get(macro_id, (None, None))
+        if role == "body":
+            return
+        if role == "open":
+            group.writing_blocks.remove(block)
+        elif role == "close":
+            block.closing = ""
+        else:
+            pending = next((b for b in group.writing_blocks if not b.closing or not b.opening), None)
+            ids = [i.macro_id for i in group.children]
+            if pending is not None:
+                if not pending.opening and pending.closing in ids and ids.index(macro_id) < ids.index(pending.closing):
+                    pending.opening = macro_id
+                elif pending.opening in ids and ids.index(macro_id) > ids.index(pending.opening):
+                    pending.closing = macro_id
+                else:
+                    self.refresh_keys_list_ui()
+                    return
+            else:
+                group.writing_blocks.append(WritingBlock(macro_id))
+        # Reject crossing a completed block when selecting a closing boundary.
+        _roles_after, errors_after = writing_layout(group)
+        if errors_after and all(b.opening and b.closing for b in group.writing_blocks):
+            group.writing_blocks[:] = [b for b, _a, _z in saved_blocks]
+            for b, a, z in saved_blocks:
+                b.opening, b.closing = a, z
+        self.save_current_configs_to_profiles(update_workers=False, update_sequences=True)
+        self.refresh_keys_list_ui()
+
+    @editable_only
+    def repair_writing(self, group):
+        if not messagebox.askyesno("Yazı bölümü", "Eksik yazı bölümleri kaldırılsın mı? İçindeki tuşlar normal tuşlara dönüşür.", parent=self.root):
+            return
+        if self.clicker.is_running:
+            return
+        previous = list(group.writing_blocks)
+        group.writing_blocks.clear()
+        for block in previous:
+            group.writing_blocks.append(block)
+            if writing_layout(group)[1]:
+                group.writing_blocks.pop()
+        self.save_current_configs_to_profiles(update_workers=False, update_sequences=True)
+        self.refresh_keys_list_ui()
+
+    @editable_only
+    def move_group_key(self, group, macro_id, target):
+        if move_group_item(group, macro_id, target):
+            view = self.list_container.canvas.yview()[0]
+            self.save_current_configs_to_profiles(update_workers=False, update_sequences=True)
+            self.refresh_keys_list_ui()
+            self.list_container.canvas.update_idletasks()
+            self.list_container.canvas.yview_moveto(view)
+
+    def step_group_key(self, group, macro_id, direction):
+        ids = [i.macro_id for i in group.children]
+        index = ids.index(macro_id)
+        roles, _ = writing_layout(group)
+        role, block = roles.get(macro_id, (None, None))
+        end = ids.index(block.closing)+1 if role == "open" else index+1
+        target = index-1 if direction < 0 else end+1
+        # Whole blocks jump over adjacent whole blocks with a single arrow.
+        neighbor = index-1 if direction < 0 else end
+        if role == "open" and 0 <= neighbor < len(ids) and ids[neighbor] in roles:
+            _, other = roles[ids[neighbor]]
+            target = ids.index(other.opening) if direction < 0 else ids.index(other.closing)+1
+        self.move_group_key(group, macro_id, target)
+
+    def start_group_drag(self, event, group, macro_id):
+        if self.clicker.is_running:
+            return
+        self._group_drag = (group, macro_id)
+        line = tk.Frame(self.list_container.canvas, bg=self.accent_color, height=2)
+        self._group_drop_line = line
+        self.drag_group_key(event)
+
+    def drag_group_key(self, event):
+        if self.clicker.is_running or not getattr(self, "_group_drag", None):
+            return
+        self._group_drag_pointer = event.y_root
+        self._paint_group_drop()
+        if not getattr(self, "_group_drag_job", None):
+            self._group_drag_job = self.root.after(40, self._scroll_group_drag)
+
+    def _paint_group_drop(self):
+        group, _macro_id = self._group_drag
+        cards = self._group_cards.get(group.id_token, [])
+        y = self._group_drag_pointer
+        target = len(cards)
+        boundary = cards[-1][1].winfo_rooty()+cards[-1][1].winfo_height() if cards else y
+        for index, (_key, card) in enumerate(cards):
+            if y < card.winfo_rooty()+card.winfo_height()/2:
+                target, boundary = index, card.winfo_rooty()
+                break
+        self._group_drag_target = target
+        canvas = self.list_container.canvas
+        self._group_drop_line.place(x=4, y=max(0, min(canvas.winfo_height()-2, boundary-canvas.winfo_rooty())), width=max(1, canvas.winfo_width()-8))
+
+    def _scroll_group_drag(self):
+        self._group_drag_job = None
+        if not getattr(self, "_group_drag", None):
+            return
+        if self.clicker.is_running:
+            self.finish_group_drag(None)
+            return
+        canvas = self.list_container.canvas
+        y = self._group_drag_pointer-canvas.winfo_rooty()
+        if y < 24:
+            canvas.yview_scroll(-1, "units")
+        elif y > canvas.winfo_height()-24:
+            canvas.yview_scroll(1, "units")
+        self._paint_group_drop()
+        self._group_drag_job = self.root.after(40, self._scroll_group_drag)
+
+    def finish_group_drag(self, event):
+        drag = getattr(self, "_group_drag", None)
+        self._group_drag = None
+        job = getattr(self, "_group_drag_job", None)
+        if job:
+            self.root.after_cancel(job)
+            self._group_drag_job = None
+        line = getattr(self, "_group_drop_line", None)
+        if line is not None:
+            line.destroy()
+            self._group_drop_line = None
+        if drag and event is not None:
+            group, macro_id = drag
+            self.move_group_key(group, macro_id, self._group_drag_target)
+
     def draw_sequence_group(
         self,
         group: SequenceGroup,
@@ -1223,6 +1357,10 @@ class ClickerApp:
         )
         add_key_button.pack(side="right")
 
+        _roles, errors = writing_layout(group)
+        if errors:
+            tk.Button(card, text="Yazı eksik · Düzelt", bg=self.input_bg, fg=self.danger_color,
+                      bd=0, command=lambda g=group: self.repair_writing(g)).pack(anchor="w")
         children_frame = tk.Frame(card, bg=self.card_color)
         children_frame.pack(fill="x")
 
@@ -1230,7 +1368,7 @@ class ClickerApp:
             if item.kind == "macro":
                 config = self._find_config(item.macro_id)
                 if config is not None:
-                    self.draw_card_row(config, parent=children_frame)
+                    self.draw_card_row(config, parent=children_frame, group=group)
 
         self.group_widgets[group.id_token] = {
             "outer": outer,
@@ -1252,6 +1390,8 @@ class ClickerApp:
                     fg=self.success_color if active else self.accent_color,
                 )
     def refresh_keys_list_ui(self):
+        self.finish_group_drag(None)
+        self._group_cards = {}
         self.sequence_groups = flatten_groups(self.sequence_groups)
         for widget in self.list_container.scrollable_frame.winfo_children():
             widget.destroy()
@@ -1283,7 +1423,7 @@ class ClickerApp:
         self.update_group_states()
         self.draw_markers()
 
-    def draw_card_row(self, config: KeyConfig, parent: tk.Misc | None = None):
+    def draw_card_row(self, config: KeyConfig, parent: tk.Misc | None = None, group=None):
         if hasattr(self, "empty_lbl") and self.empty_lbl.winfo_exists():
             self.empty_lbl.destroy()
 
@@ -1297,20 +1437,36 @@ class ClickerApp:
         row1 = tk.Frame(card, bg=self.card_color)
         row1.pack(fill="x", padx=5, pady=(4, 0))
         
+        if group is not None:
+            self._group_cards.setdefault(group.id_token, []).append((config.id_token, card))
+            roles, errors = writing_layout(group)
+            role, _block = roles.get(config.id_token, (None, None))
+            handle = tk.Label(row1, text="⠿", bg=self.card_color, fg=self.text_secondary,
+                              cursor="fleur", font=("Segoe UI", 10))
+            handle.pack(side="left")
+            if role != "close" and not errors:
+                handle.bind("<ButtonPress-1>", lambda e, g=group, k=config.id_token: self.start_group_drag(e, g, k))
+                handle.bind("<B1-Motion>", self.drag_group_key)
+                handle.bind("<ButtonRelease-1>", self.finish_group_drag)
+            for label, direction in (("↑", -1), ("↓", 1)):
+                tk.Button(row1, text=label, bd=0, bg=self.input_bg, fg=self.text_primary,
+                          padx=1, state="disabled" if role == "close" or errors else "normal",
+                          command=lambda g=group, k=config.id_token, d=direction: self.step_group_key(g, k, d)).pack(side="left")
+
         key_btn = tk.Button(
             row1, text=config.key.upper(), font=("Segoe UI", 8, "bold"),
             bg=self.input_bg, fg=self.text_primary, bd=0, activebackground=self.border_color,
             activeforeground="white", padx=6, pady=2
         )
-        key_btn.pack(side="left", padx=(0, 8))
+        key_btn.pack(side="left", padx=(2, 4))
         key_btn.configure(command=lambda cfg=config, btn=key_btn: self.start_key_capture("key", cfg, btn))
         
         # 2. Satır: Aralık & Rastgelelik Girişleri
         row2 = row1
         
         tk.Label(row2, text="Aralık", bg=self.card_color, fg=self.text_secondary, font=("Segoe UI", 8)).pack(side="left")
-        int_entry = self.create_modern_entry(row2, width=6)
-        int_entry.frame.pack(side="left", padx=(5, 10))
+        int_entry = self.create_modern_entry(row2, width=5)
+        int_entry.frame.pack(side="left", padx=(3, 4))
         int_entry.insert(0, f"{config.interval_seconds:.3f}")
         int_entry._saved_value = lambda cfg=config: f"{cfg.interval_seconds:.3f}"
         
@@ -1319,7 +1475,7 @@ class ClickerApp:
         int_entry.bind("<Return>", lambda e, cfg=config, entry=int_entry: (self.auto_save_timing(cfg, entry, "interval"), self.root.focus_set()))
         
         tk.Label(row2, text="± sn", bg=self.card_color, fg=self.text_secondary, font=("Segoe UI", 8)).pack(side="left")
-        rand_entry = self.create_modern_entry(row2, width=6)
+        rand_entry = self.create_modern_entry(row2, width=5)
         rand_entry.frame.pack(side="left", padx=5)
         rand_entry.insert(0, f"{config.random_seconds:.3f}")
         rand_entry._saved_value = lambda cfg=config: f"{cfg.random_seconds:.3f}"
@@ -1354,6 +1510,23 @@ class ClickerApp:
         chk_screen.pack(side="left", padx=(10, 0))
         chk_screen.var = screen_var
         
+        if group is not None:
+            roles, _errors = writing_layout(group)
+            role, _block = roles.get(config.id_token, (None, None))
+            pending = next((b for b in group.writing_blocks if not b.closing), None)
+            ids = [item.macro_id for item in group.children]
+            after_opening = pending is not None and pending.opening in ids and ids.index(config.id_token) > ids.index(pending.opening)
+            label = {"open": "Yazı açıyor", "close": "Yazı kapatıyor", "body": "Yazı"}.get(role,
+                     "Yazı kapatıyor" if after_opening else "Yazı açıyor")
+            writing_var = tk.IntVar(value=int(role is not None))
+            writing_check = tk.Checkbutton(row3, text=label, variable=writing_var,
+                bg=self.card_color, fg=self.text_primary, selectcolor=self.input_bg,
+                activebackground=self.card_color, activeforeground=self.text_primary,
+                font=("Segoe UI", 8, "bold"), state="disabled" if role == "body" else "normal",
+                command=lambda g=group, k=config.id_token: self.toggle_writing(g, k))
+            writing_check.var = writing_var
+            writing_check.pack(side="left", padx=(3, 0))
+
         del_btn = tk.Button(
             row3, text="Sil", font=("Segoe UI", 8, "bold"),
             bg=self.danger_color, fg="white", bd=0, activebackground=self.danger_hover,
@@ -1680,7 +1853,7 @@ class ClickerApp:
             update_sequences=group_changed,
         )
         
-        if not self.key_configs:
+        if group_changed or not self.key_configs:
             self.refresh_keys_list_ui()
             
         self.list_container.scrollable_frame.update_idletasks()
@@ -1713,6 +1886,7 @@ class ClickerApp:
             self._locked_menu_states.clear()
             return
 
+        self.finish_group_drag(None)
         self.clicker.capturing_callback = None
         self.capturing_target = None
         self.cancel_pixel_pick()

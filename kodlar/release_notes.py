@@ -1,15 +1,23 @@
 """Curated notes bundled with the matching application release."""
 
 CURRENT_NOTES = (
-    'İzleme ve tıklama işaretçileri makro çalışırken de görünür; tıklamayı geçirir ve odağı almaz.',
-    'Seçim beklerken tek nokta önizlemesi, noktanın rengi ve karttaki renk kutusu canlı güncellenir.',
-    'Önizleme kayıtlı referansı değiştirmez; izleme ve tıklama hedefleri ayrı korunur.',
-    'Alt grup ekleme kaldırıldı; eski alt grupların tuşları sırayla ana gruba aktarılır.',
-    'Gruplar aktif tuşları tek tek çalıştırıp tekrar eder; normal tekrar döngüleriyle çakışmaz.',
-    'Geçiş süresi alanı kaldırıldı; aralık + rastgele gecikme kullanılır ve basma süresi ayrıca eklenmez.',
+    'Grup tuşları tutamaçtan sürüklenerek veya ↑ / ↓ ile sıralanabilir.',
+    'Yazı açıyor / Yazı / Yazı kapatıyor bölümleri eklendi; bir grupta birden fazla bölüm kullanılabilir.',
+    'Yazı boyunca diğer gruplar, bağımsız tuşlar ve fare makroları duraklar; kalan süreyle devam eder.',
+    'Tamamlanan yazı bölümü açılış tutamacından tek parça taşınır; içerideki Yazı seçimleri kilitlidir.',
+    'Eksik bölüm başlatılmaz; izleme değişikliği, gönderim hatası veya odak kaybında makrolar durur.',
+    'Yazı sırasında zincir eylemler kapanış sonrasına ertelenir; profilin Aktif ayarları korunur.',
 )
 
 HISTORY = (
+    ("2.1.9", (
+        'İzleme ve tıklama işaretçileri makro çalışırken de görünür; tıklamayı geçirir ve odağı almaz.',
+        'Seçim beklerken tek nokta önizlemesi, noktanın rengi ve karttaki renk kutusu canlı güncellenir.',
+        'Önizleme kayıtlı referansı değiştirmez; izleme ve tıklama hedefleri ayrı korunur.',
+        'Alt grup ekleme kaldırıldı; eski alt grupların tuşları sırayla ana gruba aktarılır.',
+        'Gruplar aktif tuşları tek tek çalıştırıp tekrar eder; normal tekrar döngüleriyle çakışmaz.',
+        'Geçiş süresi alanı kaldırıldı; aralık + rastgele gecikme kullanılır ve basma süresi ayrıca eklenmez.',
+    )),
     ("2.1.8", (
         'Piksel seçimi sol tıklamayla yapılır; F8 seçimi kaldırıldı.',
         'İmlecin gri rengi örneklenmesin diye tıklamanın 8 piksel solu ve 8 piksel üstü okunur.',

@@ -15,6 +15,7 @@ class WorkerTests(unittest.TestCase):
     def worker(self, **settings):
         config = KeyConfig('sol klik', 0, 0, **settings)
         engine = Mock()
+        engine.writing_gate = None
         engine.enabled_event = threading.Event()
         engine.enabled_event.set()
         engine.input_lock = threading.RLock()

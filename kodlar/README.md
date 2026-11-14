@@ -196,3 +196,39 @@ izleme referansını, konum seçimi sadece fare hedefini değiştirir.
 
 Özel tam ekran oyunların harici Windows işaretçilerini gösterme davranışı oyuna
 bağlıdır; KAROS üzerinde görünürlük bu ortamda doğrulanmamıştır.
+
+
+## Grup sıralaması ve yazı bölümleri
+
+Makro duruyorken grup kartındaki ⠿ tutamacını sürükleyin veya ↑ / ↓ kullanın.
+Bırakılacak sıra çizgiyle gösterilir; listenin kenarında otomatik kaydırılır.
+Sıralama aynı grup içinde yapılır ve hemen kaydedilir.
+
+Sohbeti açan tuşta **Yazı açıyor**, sonraki kapatan tuşta **Yazı kapatıyor**
+seçin. Aradaki kartlar otomatik olarak kilitli **Yazı** olur. Kapanıştan sonra
+yeni bir yazı bölümü oluşturabilirsiniz. Açılış tutamacı tamamlanmış bölümü
+birlikte taşır; iç tuşlar ayrı sıralanabilir veya dışarı taşınabilir. Kapanış
+kartı bölümü geride bırakarak taşınamaz. Açılış seçimini kaldırmak o bölümü
+bilerek kaldırır; kapanış seçimini kaldırmak bölümü eksik bırakır.
+
+Yazı boyunca diğer gruplar, bağımsız tuşlar ve otomatik fare basımları duraklar.
+Başlamış basım önce bırakılır. Kapanış tuşunun aralığı tamamlandığında kalan
+süreler devam eder; kaçırılan basımlar biriktirilmez. Eşzamanlı yazı istekleri
+sırayla işlenir. Zincir eylemler kapanış sonrasına ertelenir. Kayıtlı Aktif
+seçimleri değişmez. Fiziksel klavye ve fare kullanımınız engellenmez.
+
+Bölümde bir tuş Aktif değilse veya başlangıçtaki izleme koşullarından biri
+uygun değilse bütün bölüm o tur atlanır. Her izlemeli basımdan önce piksel
+yeniden kontrol edilir. Bölüm sırasında koşul değişirse, okuma/gönderim
+başarısız olursa veya hedef pencerenin odağı değişirse bütün makro durur.
+Sohbeti kontrol ederek yeniden başlatın; yarıda kalan yazı devam ettirilmez.
+Uygulama öndeyse ilk yazı oyun penceresine geçilene kadar bekler.
+
+Açılış/kapanış silinirse bölüm eksik kalır ve makro başlatılmaz. Karttaki
+**Yazı eksik · Düzelt** işlemi eksik bölümleri onayla kaldırır; iç tuşlar normal
+tuşlara döner. Eski profillerde yazı bölümü bulunmaz; tuşlar aynen korunur.
+
+Gönderilen tuşun oyunda işlenmesi oyuna bağlıdır. Kapanışın gerçekten
+sohbeti kapattığını doğrulayan ayrı bir ekran algılayıcısı yoktur; kapanış
+tuşu ve süresi oyunda denenmelidir. Hata halinde otomatik Enter/Escape
+gönderilmez. KAROS üzerinde gerçek oyun testi bu geliştirme ortamında yapılamaz.

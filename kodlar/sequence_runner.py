@@ -4,7 +4,7 @@ import threading
 import time
 from collections.abc import Callable
 
-from .sequences import SequenceGroup, flatten_groups
+from .sequences import SequenceGroup, flatten_groups, writing_layout
 
 
 class SequenceRunner:
@@ -13,6 +13,9 @@ class SequenceRunner:
     def __init__(self, execute_macro: Callable[[str, threading.Event], bool],
                  macro_delay: Callable[[str], float],
                  state_changed: Callable[[str, bool], None], log: Callable[[str], None]):
+        self.clock = lambda: time.monotonic()
+        self.execute_writing = None
+        self.wait_delay = lambda seconds, stop: stop.wait(seconds)
         self._execute_macro = execute_macro
         self._macro_delay = macro_delay
         self._state_changed = state_changed
@@ -59,15 +62,25 @@ class SequenceRunner:
             self._log(f'Sıra başladı: {group.name}')
             while not stop.is_set():
                 executed = False
+                roles, errors = writing_layout(group)
+                if errors:
+                    raise ValueError(errors[0])
                 for item in group.children:
+                    role, block = roles.get(item.macro_id, (None, None))
+                    if role in ("body", "close"):
+                        continue
+                    if role == "open":
+                        if self.execute_writing is not None:
+                            executed = self.execute_writing(group, block, stop) or executed
+                        continue
                     if stop.is_set():
                         return
-                    started = time.monotonic()
+                    started = self.clock()
                     if self._execute_macro(item.macro_id, stop):
                         executed = True
                         period = max(0.001, self._macro_delay(item.macro_id))
-                        remaining = max(0.0, period - (time.monotonic() - started))
-                        if stop.wait(remaining):
+                        remaining = max(0.0, period - (self.clock() - started))
+                        if self.wait_delay(remaining, stop):
                             return
                 if not executed:
                     stop.wait(0.05)  # Disabled/matching monitored steps must not busy-loop.

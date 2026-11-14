@@ -16,7 +16,10 @@ from .models import KeyConfig, key_config_from_dict, clamp_click_interval
 from .profile_store import DEFAULT_PROFILE, load_profiles
 from .sequence_runner import SequenceRunner
 from .sequences import SequenceGroup, grouped_macro_ids, sequence_groups_from_list, flatten_groups
-from .workers import KeyClickerWorker
+from .workers import KeyClickerWorker, StepResult
+from .writing import WritingGate
+from .platform_win import foreground_window, foreground_is_ours
+from .sequences import writing_layout
 
 LOGGER = logging.getLogger(__name__)
 
@@ -67,6 +70,8 @@ class RandomizedAutoClicker:
         self.state_lock = threading.RLock()
         self.worker_lock = threading.RLock()
         self.input_lock = threading.RLock()
+        self.writing_gate = WritingGate()
+        self._writing_target = None
         self.last_toggle_at = 0.0
         self.manual_enabled = False
         self.mute_all_keys_until = 0.0
@@ -89,6 +94,11 @@ class RandomizedAutoClicker:
             state_changed=self._publish_sequence_state,
             log=self.log,
         )
+
+        self.sequence_runner.clock = self.writing_gate.clock
+        self.sequence_runner.execute_writing = self.execute_writing_block
+        self.sequence_runner.wait_delay = lambda seconds, stop: self.writing_gate.wait(
+            seconds, lambda: stop.is_set() or not self.is_running)
 
     @property
     def is_running(self) -> bool:
@@ -170,6 +180,15 @@ class RandomizedAutoClicker:
             self.state_callback(active)
 
     def set_enabled(self, active: bool, reason: str | None = None) -> None:
+        if active and not self.is_running:
+            for group in self.sequence_groups:
+                _roles, errors = writing_layout(group)
+                known = {c.id_token for c in self.key_configs}
+                if errors or (group.writing_blocks and any(item.macro_id not in known for item in group.children)):
+                    self.log(f"{group.name}: " + (errors[0] if errors else "Eksik tuş kaydı."))
+                    return
+        if active and not self.is_running:
+            self.sequence_runner.cancel()
         with self.state_lock:
             previous = self.manual_enabled
             self.manual_enabled = active
@@ -180,6 +199,7 @@ class RandomizedAutoClicker:
                 self.capturing_callback = None
             if active:
                 if not previous:
+                    self._writing_target = None
                     grouped_ids = grouped_macro_ids(self.sequence_groups)
                     self._runtime_enabled = {
                         config.id_token: False if config.id_token in grouped_ids else config.enabled
@@ -192,14 +212,16 @@ class RandomizedAutoClicker:
             self.sequence_runner.cancel()
             with self.state_lock:
                 self._runtime_enabled.clear()
-        if not previous and active:
-            for group in self.sequence_groups:
-                self.sequence_runner.start_group(group.id_token)
-            self._request_refresh()
         if previous != active:
             self._publish_state(active, reason)
         elif reason:
             self.log(reason)
+        if not previous and active:
+            for group in self.sequence_groups:
+                if not self.is_running:
+                    break
+                self.sequence_runner.start_group(group.id_token)
+            self._request_refresh()
 
     def refresh_enabled_state(self, reason: str | None = None) -> None:
         self.set_enabled(self.manual_enabled, reason)
@@ -240,10 +262,12 @@ class RandomizedAutoClicker:
     def start_sequence(self, group_id: str) -> bool:
         return self.sequence_runner.start_group(group_id)
 
-    def execute_group_step(self, macro_id: str, cancel: threading.Event) -> bool:
+    def execute_group_step(self, macro_id: str, cancel: threading.Event) -> StepResult:
         worker = self._group_workers.get(macro_id)
-        if worker is None or not worker.config.enabled or cancel.is_set() or not self.is_running:
-            return False
+        if cancel.is_set() or not self.is_running:
+            return StepResult.CANCELLED
+        if worker is None or not worker.config.enabled:
+            return StepResult.SKIPPED
         with self.state_lock:
             self._runtime_enabled[macro_id] = True
         try:
@@ -251,6 +275,64 @@ class RandomizedAutoClicker:
         finally:
             with self.state_lock:
                 self._runtime_enabled[macro_id] = False
+
+    def observe_input_target(self):
+        if self._writing_target is None and any(g.writing_blocks for g in self.sequence_groups):
+            target = foreground_window()
+            if target is not None and not foreground_is_ours():
+                self._writing_target = target
+
+    def abort_writing(self, reason):
+        # Never join another runner while this thread owns the writing gate.
+        with self.state_lock:
+            self.manual_enabled = False
+            self.enabled_event.clear()
+            self._runtime_enabled.clear()
+        self.sequence_runner._stop_event.set()
+        self._publish_state(False, "Yazı kesildi; sohbeti kontrol edip yeniden başlatın. " + reason)
+
+    def execute_writing_block(self, group, block, cancel):
+        ids = [item.macro_id for item in group.children]
+        members = ids[ids.index(block.opening):ids.index(block.closing)+1]
+        cancelled = lambda: cancel.is_set() or not self.is_running
+        with self.writing_gate.exclusive(cancelled) as admitted:
+            if not admitted:
+                return False
+            workers = [self._group_workers.get(key) for key in members]
+            if (time.monotonic() < self.mute_all_keys_until and any(worker and not worker.is_mouse for worker in workers)) or not all(worker and worker.ready_for_writing() for worker in workers):
+                return False
+            target = self._writing_target or foreground_window()
+            if target is not None and foreground_is_ours():
+                self.log_activity("writing:focus", "Yazı bekliyor: oyun penceresine geçin.")
+                return False
+            self._writing_target = target
+            def check_focus():
+                if target is not None and foreground_window() != target:
+                    raise RuntimeError("Oyun penceresinin odağı değişti.")
+            self.writing_gate.focus_check = check_focus
+            try:
+                self.log(f"Yazı başladı: {group.name}")
+                for key in members:
+                    if cancelled():
+                        return False
+                    check_focus()
+                    started = time.monotonic()
+                    result = self.execute_group_step(key, cancel)
+                    if not result:
+                        if not cancelled():
+                            reason = "Tuş gönderilemedi." if result is StepResult.ERROR else "İzleme koşulu değişti."
+                            raise RuntimeError(reason)
+                        return False
+                    delay = max(0.0, self.macro_delay(key) - (time.monotonic()-started))
+                    if self.writing_gate.wait(delay, cancelled):
+                        return False
+                self.log(f"Yazı tamamlandı: {group.name}")
+                for worker in workers:
+                    worker.execute_chain_actions()
+                return True
+            except Exception as error:
+                self.abort_writing(str(error))
+                return False
 
     def macro_delay(self, macro_id: str) -> float:
         for config in self.key_configs:

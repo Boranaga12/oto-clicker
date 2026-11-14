@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import unittest
+import os
 
 from kodlar.platform_win import SingleInstanceLock, is_color_close, parse_hex_color
 
@@ -14,6 +15,7 @@ class ColorTests(unittest.TestCase):
         self.assertTrue(is_color_close("#101010", "#202020", threshold=16))
         self.assertFalse(is_color_close("#101010", "#301010", threshold=16))
 
+    @unittest.skipUnless(os.name == "nt", "Windows named mutex")
     def test_single_instance_lock_can_be_reacquired_after_release(self) -> None:
         first = SingleInstanceLock("Local\\ArikMakroTest")
         second = SingleInstanceLock("Local\\ArikMakroTest")

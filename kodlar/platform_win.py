@@ -230,3 +230,10 @@ def move_overlay(handle: int, x: int, y: int, size: int) -> None:
     _user32.SetWindowPos.argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_int, ctypes.c_int, ctypes.c_int, ctypes.c_int, wintypes.UINT]
     if not _user32.SetWindowPos(handle, ctypes.c_void_p(-1), x, y, size, size, 0x0010):
         raise OSError("İşaretçi konumlandırılamadı")
+
+
+def foreground_window() -> int | None:
+    if os.name != "nt":
+        return None
+    _user32.GetForegroundWindow.restype = ctypes.c_void_p
+    return _user32.GetForegroundWindow()

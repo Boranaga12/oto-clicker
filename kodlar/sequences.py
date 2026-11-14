@@ -29,10 +29,18 @@ class SequenceItem:
 
 
 @dataclass(slots=True)
+class WritingBlock:
+    opening: str
+    closing: str = ""
+    id_token: str = field(default_factory=new_id)
+
+
+@dataclass(slots=True)
 class SequenceGroup:
     name: str = "Yeni Grup"
     children: list[SequenceItem] = field(default_factory=list)
     id_token: str = field(default_factory=new_id)
+    writing_blocks: list[WritingBlock] = field(default_factory=list)
 
 
 def sequence_group_from_dict(
@@ -44,6 +52,11 @@ def sequence_group_from_dict(
         name=str(data.get("name") or "Yeni Grup")[:40],
         id_token=str(data.get("id_token") or new_id()),
     )
+    raw_blocks = data.get("writing_blocks", [])
+    if isinstance(raw_blocks, list):
+        group.writing_blocks = [WritingBlock(str(b.get("opening", "")), str(b.get("closing", "")),
+                                            str(b.get("id_token") or new_id()))
+                                for b in raw_blocks if isinstance(b, Mapping)]
     if depth >= MAX_GROUP_DEPTH:
         return group
 
@@ -96,6 +109,7 @@ def sequence_group_to_dict(group: SequenceGroup) -> dict[str, Any]:
         "name": group.name,
         "id_token": group.id_token,
         "children": children,
+        "writing_blocks": [{"opening": b.opening, "closing": b.closing, "id_token": b.id_token} for b in group.writing_blocks],
     }
 
 
@@ -157,3 +171,60 @@ def flatten_groups(groups: list[SequenceGroup]) -> list[SequenceGroup]:
                 flat.append(SequenceItem(kind='macro', macro_id=item.macro_id, delay_seconds=0))
         group.children = flat
     return groups
+
+
+def writing_layout(group: SequenceGroup):
+    """Return member roles and errors without repairing unsafe/deleted boundaries."""
+    ids = [item.macro_id for item in group.children]
+    roles = {}
+    errors = []
+    for block in group.writing_blocks:
+        if block.opening not in ids or block.closing not in ids:
+            errors.append("Yazı açılışını ve kapanışını seç.")
+            if block.opening in ids:
+                roles[block.opening] = ("open", block)
+            if block.closing in ids:
+                roles[block.closing] = ("close", block)
+            continue
+        a, b = ids.index(block.opening), ids.index(block.closing)
+        if a >= b or any(key in roles for key in ids[a:b+1]):
+            errors.append("Yazı bölümleri çakışamaz; açılış kapanıştan önce olmalı.")
+            continue
+        for i in range(a, b+1):
+            roles[ids[i]] = ("open" if i == a else "close" if i == b else "body", block)
+    return roles, errors
+
+
+def move_group_item(group: SequenceGroup, macro_id: str, target: int) -> bool:
+    """Opening handle moves a complete block; closing stays attached."""
+    roles, errors = writing_layout(group)
+    ids = [item.macro_id for item in group.children]
+    if macro_id not in ids or errors:
+        return False
+    start = ids.index(macro_id)
+    end = start + 1
+    role, block = roles.get(macro_id, (None, None))
+    if role == "close":
+        return False
+    if role == "open":
+        end = ids.index(block.closing) + 1
+    target = max(0, min(len(ids), target))
+    if start <= target <= end:
+        return False
+    # Never split another complete block with a block, or place a body at its boundaries.
+    for other in group.writing_blocks:
+        if other is block and role == "open":
+            continue
+        a, b = ids.index(other.opening), ids.index(other.closing)
+        if role == "open" and a < target <= b:
+            return False
+    saved = list(group.children)
+    moving = group.children[start:end]
+    del group.children[start:end]
+    if target > start:
+        target -= end-start
+    group.children[target:target] = moving
+    if writing_layout(group)[1]:
+        group.children[:] = saved
+        return False
+    return True
