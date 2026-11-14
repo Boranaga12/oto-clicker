@@ -50,6 +50,14 @@ def editable_only(method):
     def guarded(self, *args, **kwargs):
         if self.clicker.is_running:
             return
+        if args and method.__name__ != "toggle_group_enabled":
+            target = args[0]
+            if isinstance(target, SequenceGroup) and not target.enabled:
+                return
+            if isinstance(target, KeyConfig):
+                for group in getattr(self, "sequence_groups", []):
+                    if not group.enabled and target.id_token in group_macro_ids(group):
+                        return
         return method(self, *args, **kwargs)
     return guarded
 
@@ -221,9 +229,8 @@ class ClickerApp:
         actions = tk.Menu(profile_actions, tearoff=False, bg=self.card_color,
                           fg=self.text_primary, activebackground=self.accent_color)
         actions.add_command(label="Yeni profil", command=self.create_profile)
+        actions.add_command(label="İsmi değiştir", command=self.rename_profile)
         actions.add_command(label="Profili sil", command=self.delete_profile)
-        actions.add_separator()
-        actions.add_command(label="Tümünü sıfırla", command=self.reset_all_profiles)
         profile_actions.configure(menu=actions)
 
         # 3. Tuş Atama Listesi (Card Panel)
@@ -894,6 +901,33 @@ class ClickerApp:
                 messagebox.showerror("Hata", "Bu isimde bir profil zaten mevcut.")
 
     @editable_only
+    def rename_profile(self):
+        old = self.active_profile
+        name = simpledialog.askstring("Profil İsmi", "Yeni profil ismi:",
+                                      initialvalue=old, parent=self.root)
+        if name is None or self.clicker.is_running:
+            return
+        name = name.strip()
+        if not name or len(name) > 40:
+            messagebox.showerror("Hata", "Profil ismi 1–40 karakter olmalı.", parent=self.root)
+            return
+        if any(key != old and key.casefold() == name.casefold() for key in self.profiles_data["profiles"]):
+            messagebox.showerror("Hata", "Bu isimde bir profil zaten mevcut.", parent=self.root)
+            return
+        if name == old:
+            return
+        self.cancel_pixel_pick()
+        self.save_current_configs_to_profiles(update_workers=False)
+        # Preserve profile order and both macro and group data, including writing sections.
+        for section in ("profiles", "groups"):
+            values = self.profiles_data.setdefault(section, {})
+            self.profiles_data[section] = {name if key == old else key: value for key, value in values.items()}
+        self.active_profile = name
+        self.profiles_data["active_profile"] = name
+        self.save_profile_document()
+        self.refresh_profile_combobox()
+
+    @editable_only
     def reset_all_profiles(self) -> None:
         if not messagebox.askyesno(
             "Tümünü Sıfırla",
@@ -1028,7 +1062,7 @@ class ClickerApp:
                     frame.pack(fill="x", padx=5, pady=1)
                 else:
                     frame.pack_forget()
-                    
+                self.fade_widgets(self.config_widgets[cfg_id]["card"], not config.enabled)
             self.draw_markers()
 
     @editable_only
@@ -1047,7 +1081,7 @@ class ClickerApp:
         config = KeyConfig(
             key="sol klik",
             interval_seconds=1.0,
-            random_seconds=0.010,
+            random_seconds=0.100,
             enabled=True,
             id_token=new_id(),
         )
@@ -1294,14 +1328,14 @@ class ClickerApp:
         header = tk.Frame(card, bg=self.card_color)
         header.pack(fill="x")
 
-        icon = tk.Label(
-            header,
-            text="○",
-            bg=self.card_color,
-            fg=border_color,
-            font=("Segoe UI", 10, "bold"),
-        )
-        icon.pack(side="left", padx=(0, 4))
+        enabled_var = tk.IntVar(value=int(group.enabled))
+        group_check = tk.Checkbutton(header, text="", variable=enabled_var,
+            bg=self.card_color, fg=self.text_primary, selectcolor=self.input_bg,
+            activebackground=self.card_color, activeforeground=self.text_primary,
+            bd=0, highlightthickness=0, padx=0, pady=0,
+            command=lambda g=group, v=enabled_var: self.toggle_group_enabled(g, v))
+        group_check.var = enabled_var
+        group_check.pack(side="left", padx=(0, 4))
 
         name_entry = tk.Entry(
             header,
@@ -1372,23 +1406,61 @@ class ClickerApp:
 
         self.group_widgets[group.id_token] = {
             "outer": outer,
-            "icon": icon,
+            "check": group_check,
+            "enabled_var": enabled_var,
         }
+        if not group.enabled:
+            self.fade_widgets(outer, True, locked=True, exception=group_check)
+
+    @editable_only
+    def toggle_group_enabled(self, group, variable):
+        self.cancel_pixel_pick()
+        self.clicker.capturing_callback = None
+        self.capturing_target = None
+        group.enabled = bool(variable.get())
+        self.save_current_configs_to_profiles(update_workers=False, update_sequences=True)
+        self.refresh_keys_list_ui()
+
+    def fade_widgets(self, widget, faded, *, locked=False, exception=None):
+        # Blend every original color toward the app background; keep controls recoverable.
+        options = widget.keys()
+        if not hasattr(widget, "_unfaded_colors"):
+            widget._unfaded_colors = {key: widget.cget(key) for key in
+                ("background", "foreground", "activebackground", "activeforeground",
+                 "disabledforeground", "disabledbackground", "highlightbackground", "selectcolor", "insertbackground")
+                if key in options}
+        applied = getattr(widget, "_applied_fade_colors", {})
+        for key in widget._unfaded_colors:
+            current = widget.cget(key)
+            if key in applied and str(current) != str(applied[key]):
+                widget._unfaded_colors[key] = current
+        widget._applied_fade_colors = {}
+        widget._faded = faded
+        for key, original in widget._unfaded_colors.items():
+            color = original
+            if faded:
+                try:
+                    source, target = widget.winfo_rgb(original), widget.winfo_rgb(self.bg_color)
+                    color = "#" + "".join(f"{round((a * 0.22 + b * 0.78) / 257):02x}" for a, b in zip(source, target))
+                except tk.TclError:
+                    continue
+            widget.configure(**{key: color})
+            widget._applied_fade_colors[key] = widget.cget(key)
+        if locked and widget is not exception and isinstance(widget, (tk.Button, tk.Entry, tk.Checkbutton, tk.Menubutton)):
+            widget.configure(state="disabled")
+        for child in widget.winfo_children():
+            self.fade_widgets(child, faded, locked=locked, exception=exception)
 
     def update_group_states(self) -> None:
         for group_id, widgets in self.group_widgets.items():
             active = group_id in self.active_group_ids
             outer = widgets.get("outer")
-            icon = widgets.get("icon")
+            group = next((g for g in self.sequence_groups if g.id_token == group_id), None)
             if outer and outer.winfo_exists():
                 outer.configure(
-                    bg=self.success_color if active else self.accent_color
+                    bg=self.border_color if group is not None and not group.enabled else self.success_color if active else self.accent_color
                 )
-            if icon and icon.winfo_exists():
-                icon.configure(
-                    text="●" if active else "○",
-                    fg=self.success_color if active else self.accent_color,
-                )
+
     def refresh_keys_list_ui(self):
         self.finish_group_drag(None)
         self._group_cards = {}
@@ -1558,7 +1630,8 @@ class ClickerApp:
             bg=config.target_color if config.target_color else self.input_bg,
             highlightthickness=1, highlightbackground=self.border_color
         )
-        color_preview.pack(side="left", padx=2)
+        if config.screen_mode:
+            color_preview.pack(side="left", padx=2)
         
         pixel_btn.configure(command=lambda cfg=config, btn=pixel_btn, lbl=coord_lbl, preview=color_preview: self.start_pixel_capture(cfg, btn, lbl, preview))
         
@@ -1620,6 +1693,7 @@ class ClickerApp:
             "loc_lbl": loc_lbl,
             "loc_btn": loc_btn
         }
+        self.fade_widgets(card, not config.enabled)
 
     def cancel_pixel_pick(self) -> None:
         pending = self._pending_pixel_pick
@@ -1765,10 +1839,13 @@ class ClickerApp:
         cfg_id = id(config)
         if cfg_id in self.config_widgets:
             frame = self.config_widgets[cfg_id]["screen_frame"]
+            swatch = self.config_widgets[cfg_id]["color_preview"]
             if config.screen_mode:
                 frame.pack(fill="x", padx=5, pady=1)
+                swatch.pack(side="left", padx=2)
             else:
                 frame.pack_forget()
+                swatch.pack_forget()
                 
         self.draw_markers()
 
@@ -1814,7 +1891,7 @@ class ClickerApp:
         config = KeyConfig(
             key="sol klik",
             interval_seconds=1.00,
-            random_seconds=0.010,
+            random_seconds=0.100,
             enabled=True,
             screen_mode=False,
             pixel_x=0,
@@ -1871,6 +1948,9 @@ class ClickerApp:
     def toggle_key_enabled(self, config: KeyConfig, var: tk.IntVar):
         self.clicker.set_config_enabled(config, var.get() == 1)
         self.save_current_configs_to_profiles(update_workers=False)
+        widgets = self.config_widgets.get(id(config), {})
+        if "card" in widgets:
+            self.fade_widgets(widgets["card"], not config.enabled)
         state_str = "aktif" if config.enabled else "pasif"
         self.clicker.log(f"{config.key.upper()} basıcısı {state_str} yapıldı.")
 
@@ -1912,7 +1992,8 @@ class ClickerApp:
                         if saved_value is not None:
                             widget.delete(0, tk.END)
                             widget.insert(0, saved_value())
-                        widget.configure(disabledbackground=self.input_bg, disabledforeground=self.text_secondary)
+                        if not getattr(widget, "_faded", False):
+                            widget.configure(disabledbackground=self.input_bg, disabledforeground=self.text_secondary)
                     widget.configure(state="disabled")
             if isinstance(widget, tk.Menu):
                 widget.unpost()

@@ -20,16 +20,16 @@ class NewKeyDefaultTests(unittest.TestCase):
         app.list_container = Mock()
         return app
 
-    def test_new_independent_key_has_ten_milliseconds_randomness(self):
+    def test_new_independent_key_has_hundred_milliseconds_randomness(self):
         app = self.app()
         app.add_blank_key_config()
-        self.assertEqual(app.key_configs[0].random_seconds, 0.010)
+        self.assertEqual(app.key_configs[0].random_seconds, 0.100)
 
-    def test_new_group_key_has_ten_milliseconds_randomness(self):
+    def test_new_group_key_has_hundred_milliseconds_randomness(self):
         app = self.app()
         group = SequenceGroup()
         app.add_key_to_group(group)
-        self.assertEqual(app.key_configs[0].random_seconds, 0.010)
+        self.assertEqual(app.key_configs[0].random_seconds, 0.100)
         self.assertEqual(group.children[0].macro_id, app.key_configs[0].id_token)
 
 

@@ -182,6 +182,8 @@ class RandomizedAutoClicker:
     def set_enabled(self, active: bool, reason: str | None = None) -> None:
         if active and not self.is_running:
             for group in self.sequence_groups:
+                if not group.enabled:
+                    continue
                 _roles, errors = writing_layout(group)
                 known = {c.id_token for c in self.key_configs}
                 if errors or (group.writing_blocks and any(item.macro_id not in known for item in group.children)):
@@ -266,6 +268,8 @@ class RandomizedAutoClicker:
         worker = self._group_workers.get(macro_id)
         if cancel.is_set() or not self.is_running:
             return StepResult.CANCELLED
+        if any(not group.enabled and macro_id in grouped_macro_ids([group]) for group in self.sequence_groups):
+            return StepResult.SKIPPED
         if worker is None or not worker.config.enabled:
             return StepResult.SKIPPED
         with self.state_lock:

@@ -45,7 +45,7 @@ class SequenceRunner:
 
     def start_group(self, group_id: str) -> bool:
         group = next((item for item in self._groups if item.id_token == group_id), None)
-        if group is None or not group.children:
+        if group is None or not group.enabled or not group.children:
             return False
         with self._lock:
             if self._stop_event.is_set() or group_id in self._threads:

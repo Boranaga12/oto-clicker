@@ -232,3 +232,19 @@ Gönderilen tuşun oyunda işlenmesi oyuna bağlıdır. Kapanışın gerçekten
 sohbeti kapattığını doğrulayan ayrı bir ekran algılayıcısı yoktur; kapanış
 tuşu ve süresi oyunda denenmelidir. Hata halinde otomatik Enter/Escape
 gönderilmez. KAROS üzerinde gerçek oyun testi bu geliştirme ortamında yapılamaz.
+
+
+## Grup kilidi ve profil isimleri
+
+Grup isminin solundaki kutu grubun tamamını etkinleştirir. İşaretini kaldırınca
+grup çalışmaz, iç kontroller kilitlenir ve çok soluk görünür. Kutuyu tekrar
+seçerek açın. İç tuşların Aktif değerleri bu işlemden etkilenmez. Aktif olmayan
+tuşlar da soluk görünür; grubunuz açıksa tuşun kendi Aktif kutusu ile açılabilir.
+Makro çalışırken bu seçimler de diğer ayarlar gibi değiştirilemez.
+
+Yeni grup ve bağımsız tuşların rastgele süresi 0.100 saniyedir. Var olan tuşların
+kayıtlı süreleri değişmez. İzleme kapalıyken renk kutusu gösterilmez.
+
+Profil menüsündeki **⋯ → İsmi değiştir** işlemi Varsayılan dahil her profilde
+kullanılır. Tuşlar, gruplar, yazı bölümleri ve profil sırası korunur. Aynı isimle
+ikinci bir profil oluşturulamaz. Tümünü sıfırla seçeneği menüden kaldırılmıştır.

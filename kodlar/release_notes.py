@@ -1,15 +1,23 @@
 """Curated notes bundled with the matching application release."""
 
 CURRENT_NOTES = (
-    'Grup tuşları tutamaçtan sürüklenerek veya ↑ / ↓ ile sıralanabilir.',
-    'Yazı açıyor / Yazı / Yazı kapatıyor bölümleri eklendi; bir grupta birden fazla bölüm kullanılabilir.',
-    'Yazı boyunca diğer gruplar, bağımsız tuşlar ve fare makroları duraklar; kalan süreyle devam eder.',
-    'Tamamlanan yazı bölümü açılış tutamacından tek parça taşınır; içerideki Yazı seçimleri kilitlidir.',
-    'Eksik bölüm başlatılmaz; izleme değişikliği, gönderim hatası veya odak kaybında makrolar durur.',
-    'Yazı sırasında zincir eylemler kapanış sonrasına ertelenir; profilin Aktif ayarları korunur.',
+    'Grup başlığındaki yuvarlak kaldırıldı; grubun tamamı bağımsız seçim kutusuyla açılıp kilitlenir.',
+    'Kilitli gruplar ve pasif tuşlar çok soluk görünür; grup kilidi tuşların Aktif ayarlarını değiştirmez.',
+    'Yeni tuşlarda rastgele süre varsayılanı 0.100 saniye oldu; mevcut süreler korunur.',
+    'İzlemesi kapalı tuşların renk kutusu gizlenir.',
+    'Varsayılan dahil bütün profillerin ismi ⋯ menüsünden değiştirilebilir.',
+    'Tümünü sıfırla menü seçeneği kaldırıldı.',
 )
 
 HISTORY = (
+    ("2.1.10", (
+        'Grup tuşları tutamaçtan sürüklenerek veya ↑ / ↓ ile sıralanabilir.',
+        'Yazı açıyor / Yazı / Yazı kapatıyor bölümleri eklendi; bir grupta birden fazla bölüm kullanılabilir.',
+        'Yazı boyunca diğer gruplar, bağımsız tuşlar ve fare makroları duraklar; kalan süreyle devam eder.',
+        'Tamamlanan yazı bölümü açılış tutamacından tek parça taşınır; içerideki Yazı seçimleri kilitlidir.',
+        'Eksik bölüm başlatılmaz; izleme değişikliği, gönderim hatası veya odak kaybında makrolar durur.',
+        'Yazı sırasında zincir eylemler kapanış sonrasına ertelenir; profilin Aktif ayarları korunur.',
+    )),
     ("2.1.9", (
         'İzleme ve tıklama işaretçileri makro çalışırken de görünür; tıklamayı geçirir ve odağı almaz.',
         'Seçim beklerken tek nokta önizlemesi, noktanın rengi ve karttaki renk kutusu canlı güncellenir.',

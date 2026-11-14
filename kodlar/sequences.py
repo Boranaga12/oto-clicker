@@ -41,6 +41,7 @@ class SequenceGroup:
     children: list[SequenceItem] = field(default_factory=list)
     id_token: str = field(default_factory=new_id)
     writing_blocks: list[WritingBlock] = field(default_factory=list)
+    enabled: bool = True
 
 
 def sequence_group_from_dict(
@@ -50,6 +51,7 @@ def sequence_group_from_dict(
 ) -> SequenceGroup:
     group = SequenceGroup(
         name=str(data.get("name") or "Yeni Grup")[:40],
+        enabled=bool(data.get("enabled", True)),
         id_token=str(data.get("id_token") or new_id()),
     )
     raw_blocks = data.get("writing_blocks", [])
@@ -107,6 +109,7 @@ def sequence_group_to_dict(group: SequenceGroup) -> dict[str, Any]:
             })
     return {
         "name": group.name,
+        "enabled": group.enabled,
         "id_token": group.id_token,
         "children": children,
         "writing_blocks": [{"opening": b.opening, "closing": b.closing, "id_token": b.id_token} for b in group.writing_blocks],
