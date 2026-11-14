@@ -7,7 +7,7 @@ import unittest
 from copy import deepcopy
 from unittest.mock import Mock, patch
 
-from pynput import keyboard
+from pynput.mouse import Button
 
 from kodlar.app_paths import data_directory
 from kodlar.config import AppConfig
@@ -128,17 +128,18 @@ class EditLockTests(unittest.TestCase):
         self.assertIn('new log during selection', text.get('1.0', 'end'))
         self.assertEqual(str(text.cget('state')), 'disabled')
 
-    def test_f8_captures_physical_game_point_and_display_mode(self):
+    def test_click_captures_offset_game_point_and_display_mode(self):
         widgets = self.app.config_widgets[id(self.config)]
         self.app.start_pixel_capture(self.config, widgets['pixel_btn'], widgets['coord_lbl'], widgets['color_preview'])
         self.assertIsNone(self.app._capture_overlay)
-        with patch('kodlar.gui.physical_cursor_position', return_value=(1200, 700)):
-            with patch('kodlar.gui.screen_bounds', return_value=(0, 0, 1920, 1080)):
-                with patch('kodlar.gui.get_pixel_color_win32', return_value='#123456'):
-                    with patch('kodlar.gui.foreground_is_ours', return_value=False):
-                        self.engine.on_key_press(keyboard.Key.f8)
-                        self.process_queue_now()
-        self.assertEqual((self.config.pixel_x, self.config.pixel_y), (1200, 700))
+        with patch('kodlar.gui.screen_bounds', return_value=(0, 0, 1920, 1080)):
+            with patch('kodlar.gui.get_pixel_color_win32', return_value='#123456') as read:
+                with patch('kodlar.gui.foreground_is_ours', return_value=False):
+                    self.engine.on_mouse_click(1200, 700, Button.left, True)
+                    self.engine.on_mouse_click(1200, 700, Button.left, False)
+                    self.process_queue_now()
+                    read.assert_called_once_with(1192, 692)
+        self.assertEqual((self.config.pixel_x, self.config.pixel_y), (1192, 692))
         self.assertEqual(self.config.target_color, '#123456')
         self.assertEqual(self.config.pixel_screen_bounds, (0, 0, 1920, 1080))
         self.assertIsNone(self.app._pending_pixel_pick)

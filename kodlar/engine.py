@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import threading
-import os
 import time
 import logging
 from collections import defaultdict, deque
@@ -78,9 +77,9 @@ class RandomizedAutoClicker:
         self.refresh_callback: SimpleCallback | None = None
         self.persist_callback: SimpleCallback | None = None
         self.capturing_callback: CaptureCallback | None = None
-        self.pixel_capture_callback: CaptureCallback | None = None
-        self._capture_key_held: str | None = None
-        self._keyboard_listener = None
+        self.pixel_capture_callback: Callable[[int, int], None] | None = None
+        self.pixel_capture_cancel_callback: SimpleCallback | None = None
+        self._pixel_capture_down: tuple[int, int] | None = None
         self.sequence_state_callback: SequenceStateCallback | None = None
         self.sequence_runner = SequenceRunner(
             activate_macro=self._activate_macro_by_id,
@@ -330,12 +329,24 @@ class RandomizedAutoClicker:
         button: Button,
         pressed: bool,
     ) -> bool:
-        if self.stop_event.is_set() or not pressed:
+        if self.stop_event.is_set():
             return True
         button_name = get_mouse_button_name(button)
         if not button_name:
             return True
-        if self._consume_injected_input("mouse", button_name):
+        if pressed and self._consume_injected_input("mouse", button_name):
+            return True
+        if button == Button.left and self.pixel_capture_callback is not None:
+            if pressed:
+                self._pixel_capture_down = (x, y)
+            elif self._pixel_capture_down is not None:
+                point = self._pixel_capture_down
+                self._pixel_capture_down = None
+                callback = self.pixel_capture_callback
+                self.pixel_capture_callback = None
+                callback(*point)
+            return True
+        if not pressed:
             return True
         if self.capturing_callback is not None:
             self.capturing_callback(button_name)
@@ -357,13 +368,11 @@ class RandomizedAutoClicker:
             return
         if self._consume_injected_input("key", key_name):
             return
-        if key_name == self._capture_key_held:
-            return
-        if self.pixel_capture_callback is not None and key_name in {"f8", "esc"}:
-            self._capture_key_held = key_name
-            callback = self.pixel_capture_callback
+        if self.pixel_capture_callback is not None and key_name == "esc":
             self.pixel_capture_callback = None
-            callback(key_name)
+            self._pixel_capture_down = None
+            if self.pixel_capture_cancel_callback is not None:
+                self.pixel_capture_cancel_callback()
             return
         if self.capturing_callback is not None:
             self.capturing_callback(key_name)
@@ -374,28 +383,6 @@ class RandomizedAutoClicker:
         self.toggle_manual()
         if self.refresh_callback:
             self.refresh_callback()
-
-    def filter_capture_hotkey(self, message: int, data) -> bool:
-        # Suppress only the temporary capture shortcut, not ordinary game input.
-        key = {0x77: keyboard.Key.f8, 0x1B: keyboard.Key.esc}.get(data.vkCode)
-        if key is None:
-            return True
-        name = get_key_name(key)
-        if self.pixel_capture_callback is None and self._capture_key_held != name:
-            return True
-        if message in {0x0100, 0x0104}:  # WM_KEYDOWN / WM_SYSKEYDOWN
-            self.on_key_press(key)
-        elif message in {0x0101, 0x0105}:
-            self.on_key_release(key)
-        else:
-            return True
-        if self._keyboard_listener is not None:
-            self._keyboard_listener.suppress_event()
-        return False
-
-    def on_key_release(self, key: keyboard.KeyCode | keyboard.Key) -> None:
-        if get_key_name(key) == self._capture_key_held:
-            self._capture_key_held = None
 
     def _load_initial_profile(self) -> None:
         if self.key_configs:
@@ -415,10 +402,8 @@ class RandomizedAutoClicker:
     def run(self) -> None:
         try:
             self._load_initial_profile()
-            options = {"win32_event_filter": self.filter_capture_hotkey} if os.name == "nt" else {}
-            keyboard_listener = keyboard.Listener(on_press=self.on_key_press, on_release=self.on_key_release, **options)
-            self._keyboard_listener = keyboard_listener
-            with keyboard_listener, MouseListener(on_click=self.on_mouse_click) as mouse_listener:
+            with keyboard.Listener(on_press=self.on_key_press) as keyboard_listener, \
+                    MouseListener(on_click=self.on_mouse_click) as mouse_listener:
                 self.log(
                     "Hazır. Kısayol tuşu veya orta fare tuşuyla sistemi "
                     "başlatıp durdurabilirsiniz."
@@ -429,5 +414,4 @@ class RandomizedAutoClicker:
         except Exception as exc:
             self.log(f"Motor hatası: {exc}")
         finally:
-            self._keyboard_listener = None
             self.stop()

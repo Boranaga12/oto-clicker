@@ -1,13 +1,19 @@
 """Curated notes bundled with the matching application release."""
 
 CURRENT_NOTES = (
-    'Kayıtlar fareyle sürüklenerek seçilebilir ve Ctrl+C ile kopyalanabilir.',
-    'Seçim sırasında kayıt görünümü sabit kalır; seçim kalkınca bekleyen kayıtlar gösterilir.',
-    'RGB karşılaştırmasına kanal başına 8 tolerans eklendi; küçük oyun renk dalgalanmaları tetiklemiyor.',
-    'Basış öncesi renk kontrolü de aynı toleransı kullanıyor; renk geri geldiğinde basış iptal ediliyor.',
+    'Piksel seçimi sol tıklamayla yapılır; F8 seçimi kaldırıldı.',
+    'İmlecin gri rengi örneklenmesin diye tıklamanın 8 piksel solu ve 8 piksel üstü okunur.',
+    'Referans ve çalışma sırasındaki okuma aynı kaydedilmiş koordinatı kullanır.',
+    'Önceden imleçten alınan referansları temizlemek için pikseli yeniden seçin.',
 )
 
 HISTORY = (
+    ("2.1.7", (
+        'Kayıtlar fareyle sürüklenerek seçilebilir ve Ctrl+C ile kopyalanabilir.',
+        'Seçim sırasında kayıt görünümü sabit kalır; seçim kalkınca bekleyen kayıtlar gösterilir.',
+        'RGB karşılaştırmasına kanal başına 8 tolerans eklendi; küçük oyun renk dalgalanmaları tetiklemiyor.',
+        'Basış öncesi renk kontrolü de aynı toleransı kullanıyor; renk geri geldiğinde basış iptal ediliyor.',
+    )),
     ("2.1.6", (
         'Tam ekran seçimi: Piksel Seç sonrası oyun içinde F8 ile referans alınır; ESC iptal eder.',
         'Fiziksel imleç koordinatları ve erken DPI ayarı kullanılıyor; ekran okuyucu her okumada yenileniyor.',

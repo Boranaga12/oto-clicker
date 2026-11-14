@@ -25,7 +25,7 @@ from .models import (
     key_config_to_dict,
     new_id,
 )
-from .platform_win import flush_desktop, get_pixel_color_win32, physical_cursor_position, screen_bounds, foreground_is_ours, foreground_description
+from .platform_win import flush_desktop, get_pixel_color_win32, screen_bounds, foreground_is_ours, foreground_description
 from .profile_store import load_profiles, reset_profiles, save_profiles
 from .sequences import (
     MAX_GROUP_DEPTH,
@@ -38,6 +38,9 @@ from .sequences import (
     sequence_groups_from_list,
 )
 from .ui_widgets import DEFAULT_THEME, ScrollableFrame
+
+
+PIXEL_PICK_OFFSET = 8
 
 
 def editable_only(method):
@@ -603,7 +606,7 @@ class ClickerApp:
                         if not self.clicker.is_running and any(config is item for item in self.key_configs):
                             if color:
                                 self.log_queue.put(("pixel_capture", (config, x, y, color, button, coord_lbl, preview, bounds)))
-                                self.clicker.log(f"F8 fiziksel piksel ({x}, {y}); ekran sınırları: {bounds}")
+                                self.clicker.log(f"Seçilen fiziksel piksel ({x}, {y}); ekran sınırları: {bounds}")
                             else:
                                 self.clicker.log("Oyun pikseli okunamadı veya ekran modu değişti; önceki hedef korundu.")
                 elif msg_type in {"pixel_capture", "click_capture"} and self.clicker.is_running:
@@ -1486,6 +1489,8 @@ class ClickerApp:
         pending = self._pending_pixel_pick
         self._pending_pixel_pick = None
         self.clicker.pixel_capture_callback = None
+        self.clicker.pixel_capture_cancel_callback = None
+        self.clicker._pixel_capture_down = None
         if pending is not None and pending[1].winfo_exists():
             pending[1].configure(text="Piksel Seç", bg=self.input_bg, fg=self.text_primary)
 
@@ -1508,27 +1513,29 @@ class ClickerApp:
         self._pending_pixel_pick = pending
         for marker in self.markers.values():
             marker.withdraw()
-        button.configure(text="F8 ile seç", bg=self.accent_color, fg="white")
-        self.clicker.pixel_capture_callback = lambda key: self.on_pixel_pick_key(key, pending)
-        self.clicker.log("Oyuna dönün, imleci izlenecek noktaya getirin ve F8'e basın. ESC: iptal.")
+        button.configure(text="Tıklayın...", bg=self.accent_color, fg="white")
+        self.arm_pixel_click(pending)
+        self.clicker.log("İzlenecek noktaya tıklayın; tıklamanın 8 piksel solu ve üstü okunacak. ESC: iptal.")
 
-    def on_pixel_pick_key(self, key: str, pending) -> None:
-        # Runs in the input hook: no Tk call and no overlay/focus change.
-        if key == "esc":
-            self.log_queue.put(("pixel_pick_cancel", pending))
+    def arm_pixel_click(self, pending) -> None:
+        self.clicker.pixel_capture_callback = lambda x, y: self.on_pixel_pick_click(x, y, pending)
+        self.clicker.pixel_capture_cancel_callback = lambda: self.log_queue.put(("pixel_pick_cancel", pending))
+
+    def on_pixel_pick_click(self, click_x: int, click_y: int, pending) -> None:
+        # The global mouse hook supplies physical coordinates. No overlay or F8.
+        if foreground_is_ours():
+            self.arm_pixel_click(pending)  # Ignore the picker button's own click.
             return
-        point, bounds, color = None, None, ""
+        x, y = click_x - PIXEL_PICK_OFFSET, click_y - PIXEL_PICK_OFFSET
+        bounds, color = None, ""
         try:
-            point = physical_cursor_position()
-            self.enqueue_log(f"F8 seçim ortamı: {foreground_description()}")
+            self.enqueue_log(f"Piksel seçim ortamı: {foreground_description()}")
             bounds = screen_bounds()
-            color = get_pixel_color_win32(*point) if point is not None else ""
+            color = get_pixel_color_win32(x, y)
             if bounds != screen_bounds():
-                color = ""  # The display mode changed during selection.
+                color = ""
         except Exception as error:
             self.enqueue_log(f"Piksel seçimi başarısız: {error}")
-            color = ""
-        x, y = point if point is not None else (0, 0)
         self.log_queue.put(("pixel_pick_result", (pending, x, y, color, bounds)))
 
     def sample_uncovered_pixel(self, x: int, y: int, overlay=None) -> str:

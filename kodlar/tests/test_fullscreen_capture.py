@@ -8,6 +8,7 @@ from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
 from pynput import keyboard
+from pynput.mouse import Button
 
 from kodlar import platform_win
 from kodlar.config import AppConfig
@@ -55,7 +56,7 @@ class PhysicalCaptureTests(unittest.TestCase):
                     platform_win.enable_dpi_awareness()
                     user32.SetProcessDPIAware.assert_called_once()
 
-    def test_f8_selection_does_not_create_a_window_or_change_focus(self):
+    def test_click_selection_offsets_sample_without_window_or_focus_change(self):
         app = ClickerApp.__new__(ClickerApp)
         app.clicker = Mock(is_running=False)
         app._pending_pixel_pick = None
@@ -67,17 +68,17 @@ class PhysicalCaptureTests(unittest.TestCase):
         config = KeyConfig('a', 1, 0)
         with patch('kodlar.gui.tk.Toplevel') as overlay:
             app.start_pixel_capture(config, button, Mock(), Mock())
-            with patch('kodlar.gui.physical_cursor_position', return_value=(960, 540)):
+            with patch('kodlar.gui.foreground_is_ours', return_value=False):
                 with patch('kodlar.gui.screen_bounds', return_value=(0, 0, 1920, 1080)):
                     with patch('kodlar.gui.get_pixel_color_win32', return_value='#123456') as read:
-                        app.clicker.pixel_capture_callback('f8')
-                        read.assert_called_once_with(960, 540)
+                        app.clicker.pixel_capture_callback(960, 540)
+                        read.assert_called_once_with(952, 532)
             overlay.assert_not_called()
         kind, data = app.log_queue.get_nowait()
         self.assertEqual(kind, 'log')
         kind, data = app.log_queue.get_nowait()
         self.assertEqual(kind, 'pixel_pick_result')
-        self.assertEqual(data[1:], (960, 540, '#123456', (0, 0, 1920, 1080)))
+        self.assertEqual(data[1:], (952, 532, '#123456', (0, 0, 1920, 1080)))
         app.root.focus_set.assert_not_called()
 
     def test_display_bounds_survive_json_roundtrip_and_negative_monitor_coordinates(self):
@@ -99,33 +100,44 @@ class PhysicalCaptureTests(unittest.TestCase):
         pixels.get.assert_not_called()
         worker.press_key.assert_not_called()
 
-    def test_capture_f8_is_suppressed_only_while_selecting(self):
+    def test_monitor_uses_saved_offset_point_without_shifting_it_again(self):
+        config = KeyConfig('a', 1, 0, screen_mode=True, pixel_x=952, pixel_y=532, target_color='#123456')
+        engine = Mock(mute_all_keys_until=0)
+        worker = KeyClickerWorker(config, Mock(), engine)
+        worker.wait = lambda seconds: worker.stop() or True
+        worker.press_key = Mock()
+        pixels = Mock()
+        pixels.get.return_value = '#123456'
+        worker._run_screen_mode(pixels)
+        pixels.get.assert_called_once_with(952, 532)
+        worker.press_key.assert_not_called()
+
+    def test_click_capture_waits_for_release_and_is_one_shot(self):
         with patch('kodlar.engine.Controller'), patch('kodlar.engine.keyboard.Controller'):
             engine = RandomizedAutoClicker(AppConfig())
-        listener = Mock()
-        engine._keyboard_listener = listener
-        engine.pixel_capture_callback = Mock()
-        data = SimpleNamespace(vkCode=0x77)
-        self.assertFalse(engine.filter_capture_hotkey(0x0100, data))
-        self.assertFalse(engine.filter_capture_hotkey(0x0101, data))
-        self.assertEqual(listener.suppress_event.call_count, 2)
-        self.assertTrue(engine.filter_capture_hotkey(0x0100, data))
-        self.assertEqual(listener.suppress_event.call_count, 2)
-        engine.stop()
-
-    def test_f8_is_one_shot_and_does_not_toggle_engine(self):
-        with patch('kodlar.engine.Controller'), patch('kodlar.engine.keyboard.Controller'):
-            engine = RandomizedAutoClicker(AppConfig(panic_key='f8'))
         callback = Mock()
         engine.pixel_capture_callback = callback
         engine.on_key_press(keyboard.Key.f8)
-        callback.assert_called_once_with('f8')
+        callback.assert_not_called()
+        engine.on_mouse_click(960, 540, Button.left, True)
+        callback.assert_not_called()
+        engine.on_mouse_click(961, 541, Button.left, False)
+        callback.assert_called_once_with(960, 540)
         self.assertIsNone(engine.pixel_capture_callback)
-        self.assertFalse(engine.is_running)
-        engine.on_key_press(keyboard.Key.f8)  # OS key repeat must not start a macro.
+        engine.on_mouse_click(960, 540, Button.left, False)
         callback.assert_called_once()
         self.assertFalse(engine.is_running)
-        engine.on_key_release(keyboard.Key.f8)
+        engine.stop()
+
+    def test_escape_cancels_click_capture_without_starting_macro(self):
+        with patch('kodlar.engine.Controller'), patch('kodlar.engine.keyboard.Controller'):
+            engine = RandomizedAutoClicker(AppConfig())
+        engine.pixel_capture_callback = Mock()
+        cancel = engine.pixel_capture_cancel_callback = Mock()
+        engine.on_key_press(keyboard.Key.esc)
+        cancel.assert_called_once()
+        self.assertIsNone(engine.pixel_capture_callback)
+        self.assertFalse(engine.is_running)
         engine.stop()
 
 

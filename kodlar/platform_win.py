@@ -104,17 +104,6 @@ def screen_bounds() -> tuple[int, int, int, int] | None:
     return values if values[2] > 0 and values[3] > 0 else None
 
 
-def physical_cursor_position() -> tuple[int, int] | None:
-    if os.name != "nt":
-        return None
-    point = wintypes.POINT()
-    reader = getattr(_user32, "GetPhysicalCursorPos", _user32.GetCursorPos)
-    reader.argtypes = [ctypes.POINTER(wintypes.POINT)]
-    reader.restype = wintypes.BOOL
-    if not reader(ctypes.byref(point)):
-        return None
-    return point.x, point.y
-
 
 def get_pixel_color_win32(x: int, y: int) -> str:
     return PixelSampler().get(x, y)

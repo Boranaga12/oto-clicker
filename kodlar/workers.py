@@ -228,7 +228,7 @@ class KeyClickerWorker(StoppableWorker):
             target = (self.config.pixel_x, self.config.pixel_y, self.config.target_color, self.config.pixel_screen_bounds)
             bounds = screen_bounds()
             if target[3] is not None and bounds is not None and target[3] != bounds:
-                self.clicker.log_activity(self.config.id_token + ":display", "Ekran çözünürlüğü değişti; izleme duraklatıldı. Oyun açıkken F8 ile pikseli yeniden seçin.")
+                self.clicker.log_activity(self.config.id_token + ":display", "Ekran çözünürlüğü değişti; izleme duraklatıldı. Piksel Seç ile oyun içindeki noktayı yeniden seçin.")
                 self.wait(0.2)
                 continue
             color = pixels.get(target[0], target[1])
