@@ -44,6 +44,9 @@ class SingleInstanceLock:
         self._handle = None
 
 
+MONITOR_COLOR_TOLERANCE = 8
+
+
 def parse_hex_color(value: str) -> tuple[int, int, int] | None:
     value = value.strip().removeprefix("#")
     if len(value) != 6:

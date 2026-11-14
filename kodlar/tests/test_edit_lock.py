@@ -95,6 +95,39 @@ class EditLockTests(unittest.TestCase):
         self.app.auto_save_timing(self.config, Mock(get=Mock(return_value='0.4')), 'interval')
         self.assertEqual(self.config.interval_seconds, 0.4)
 
+    def test_log_mouse_drag_selection_and_native_copy_keep_focus(self):
+        self.start()
+        self.app.clear_console_logs()
+        self.app.append_log_to_widget('ABCDEFGH')
+        self.root.focus_force()
+        self.root.update()
+        text = self.app.log_text
+        start = text.bbox('1.1')
+        finish = text.bbox('1.6')
+        self.assertIsNotNone(start)
+        self.assertIsNotNone(finish)
+        x, y = start[0] + 1, start[1] + start[3] // 2
+        end_x = finish[0] + 1
+        text.event_generate('<ButtonPress-1>', x=x, y=y)
+        text.event_generate('<B1-Motion>', x=end_x, y=y)
+        text.event_generate('<ButtonRelease-1>', x=end_x, y=y)
+        self.root.update()
+        self.assertIs(self.root.focus_get(), text)
+        self.assertTrue(text.tag_ranges('sel'))
+        selected = text.get('sel.first', 'sel.last')
+        self.assertGreaterEqual(len(selected), 3)
+        text.event_generate('<<Copy>>')
+        self.root.update()
+        self.assertEqual(self.root.clipboard_get(), selected)
+        original = text.get('1.0', 'end')
+        self.app.append_log_to_widget('new log during selection')
+        self.assertEqual(text.get('1.0', 'end'), original)
+        self.assertEqual(text.get('sel.first', 'sel.last'), selected)
+        text.tag_remove('sel', '1.0', 'end')
+        self.app.end_log_selection(None)
+        self.assertIn('new log during selection', text.get('1.0', 'end'))
+        self.assertEqual(str(text.cget('state')), 'disabled')
+
     def test_f8_captures_physical_game_point_and_display_mode(self):
         widgets = self.app.config_widgets[id(self.config)]
         self.app.start_pixel_capture(self.config, widgets['pixel_btn'], widgets['coord_lbl'], widgets['color_preview'])

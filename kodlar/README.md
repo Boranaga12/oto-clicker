@@ -131,7 +131,8 @@ GitHub Actions çalışma numarasıyla otomatik artar. Yeni değişikliklerde
 Yeni bağımsız veya gruba eklenen tuşlarda rastgele gecikme `0.010` saniyedir.
 İzlemede `Piksel Seç` sonrası oyuna dönün, imleci hedef noktaya götürüp F8
 tuşuna basın. Oyun odağı değişmeden o noktanın RGB rengi kaydedilir; ESC iptal eder.
-Piksel tam olarak farklıysa tuş tekrarlanır; renk tekrar eşleşince bekleyen basış
+Her RGB kanalında 8 değer tolerans kullanılır. Bu sınır aşılırsa tuş tekrarlanır;
+renk tolerans içine döndüğünde bekleyen basış
 iptal edilir. Basıştan hemen önce de kontrol yapılır. Okunamayan piksel tetiklemez.
 İzleme işaretçisi sürüklenirse yeni renk sürükleme bittiğinde alınır.
 
@@ -162,4 +163,9 @@ Tam ekran DirectX görüntüsünün standart Windows GDI ile yakalanması oyuna 
 ekran moduna bağlıdır; KAROS üzerinde doğrulanmamıştır. RGB değerleri oyun
 karesini yansıtmıyorsa pencereli/kenarlıksız modda tekrar test edin. Siyah bir
 piksel tek başına hata sayılmaz. Animasyon, imleç/hover, ışıklandırma ve gamma
-aynı görünen bölgede RGB değişimine yol açabilir; karşılaştırma tam RGB eşliğidir.
+aynı görünen bölgede RGB değişimine yol açabilir. Kanal başına 8 tolerans, küçük
+dalgalanmaları aynı renk sayar; tanı kaydında kullanılan tolerans da gösterilir.
+
+Kayıtlar normal metin gibi fareyle sürüklenip seçilebilir ve Ctrl+C ile kopyalanır.
+Seçilen metin değişmesin diye görünür kayıt akışı seçim sırasında bekletilir;
+seçim temizlenince devam eder. Dosya günlüğü bu sırada kayda devam eder.

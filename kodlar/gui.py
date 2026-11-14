@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import queue
+from collections import deque
 from functools import wraps
 import os
 from pathlib import Path
@@ -682,10 +683,13 @@ class ClickerApp:
         return entry
 
     def init_console(self):
+        self._log_selecting = False
+        self._pending_log_lines = deque(maxlen=200)
         self.log_text = tk.Text(
             self.log_container_frame, bg="#0d1117", fg="#c9d1d9",
             font=("Consolas", 8), bd=0, highlightthickness=0,
-            state="disabled", wrap="word", height=2
+            state="disabled", wrap="word", height=2, exportselection=False,
+            selectbackground=self.accent_color, selectforeground="white"
         )
         
         scrollbar = tk.Scrollbar(self.log_container_frame, command=self.log_text.yview)
@@ -693,25 +697,49 @@ class ClickerApp:
         
         scrollbar.pack(side="right", fill="y")
         self.log_text.pack(side="left", fill="both", expand=True)
+        self.log_text.bind("<ButtonPress-1>", self.begin_log_selection)
+        self.log_text.bind("<ButtonRelease-1>", self.end_log_selection)
+
 
     def clear_console_logs(self):
+        self._pending_log_lines.clear()
+        self._log_selecting = False
         self.log_text.configure(state="normal")
         self.log_text.delete("1.0", tk.END)
         self.log_text.configure(state="disabled")
 
     def unfocus_entries(self, event):
-        # Eğer tıklanan nesne bir Entry değilse odağı ana pencereye çekerek klavye odağını düşürür
-        if event.widget and not isinstance(event.widget, tk.Entry):
+        # Text must retain focus for native mouse selection and Ctrl+C.
+        if event.widget and not isinstance(event.widget, (tk.Entry, tk.Text)):
             self.root.focus_set()
 
+    def begin_log_selection(self, _event):
+        self._log_selecting = True
+        self.log_text.focus_set()
+
+    def end_log_selection(self, _event):
+        self._log_selecting = False
+        self.flush_log_buffer()
+
     def append_log_to_widget(self, msg: str):
+        self._pending_log_lines.append(msg)
+        self.flush_log_buffer()
+
+    def flush_log_buffer(self):
+        # Freeze the displayed text while it is being selected or copied.
+        if self._log_selecting or self.log_text.tag_ranges("sel") or not self._pending_log_lines:
+            return
+        follow_end = self.log_text.yview()[1] >= 0.999
+        messages = list(self._pending_log_lines)
+        self._pending_log_lines.clear()
         self.log_text.configure(state="normal")
-        self.log_text.insert(tk.END, msg + "\n")
+        self.log_text.insert(tk.END, "\n".join(messages) + "\n")
         lines = int(self.log_text.index('end-1c').split('.')[0])
         if lines > 100:
-            self.log_text.delete("1.0", "2.0")
-        self.log_text.see(tk.END)
+            self.log_text.delete("1.0", f"{lines - 99}.0")
         self.log_text.configure(state="disabled")
+        if follow_end:
+            self.log_text.see(tk.END)
 
     def load_active_profile_configs(self):
         configs_list = self.profiles_data["profiles"].get(self.active_profile, [])
@@ -1726,7 +1754,8 @@ class ClickerApp:
             for name, label in (("key_btn", config.key.upper()), ("pixel_btn", "Piksel Seç"), ("loc_btn", "Konum Seç")):
                 if name in widgets:
                     widgets[name].configure(text=label)
-        self.root.focus_set()
+        if not isinstance(self.root.focus_get(), tk.Text):
+            self.root.focus_set()
 
         def lock_widget(widget):
             if isinstance(widget, (tk.Entry, tk.Button, tk.Checkbutton, tk.Menubutton)):

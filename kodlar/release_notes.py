@@ -1,14 +1,20 @@
 """Curated notes bundled with the matching application release."""
 
 CURRENT_NOTES = (
-    'Tam ekran seçimi: Piksel Seç sonrası oyun içinde F8 ile referans alınır; ESC iptal eder.',
-    'Fiziksel imleç koordinatları ve erken DPI ayarı kullanılıyor; ekran okuyucu her okumada yenileniyor.',
-    'Çözünürlük değiştiğinde izleme duraklar; yanlış noktadan tetikleme yapılmaz.',
-    'Tanı kayıtları referans/okunan RGB, pencere, DPI ve hangi kartın bastığını gösteriyor.',
-    "Bu sürüm tam ekran sorunlarını ayırt etmek içindir; KAROS'ta doğrulanmış bir çözüm iddiası yoktur.",
+    'Kayıtlar fareyle sürüklenerek seçilebilir ve Ctrl+C ile kopyalanabilir.',
+    'Seçim sırasında kayıt görünümü sabit kalır; seçim kalkınca bekleyen kayıtlar gösterilir.',
+    'RGB karşılaştırmasına kanal başına 8 tolerans eklendi; küçük oyun renk dalgalanmaları tetiklemiyor.',
+    'Basış öncesi renk kontrolü de aynı toleransı kullanıyor; renk geri geldiğinde basış iptal ediliyor.',
 )
 
 HISTORY = (
+    ("2.1.6", (
+        'Tam ekran seçimi: Piksel Seç sonrası oyun içinde F8 ile referans alınır; ESC iptal eder.',
+        'Fiziksel imleç koordinatları ve erken DPI ayarı kullanılıyor; ekran okuyucu her okumada yenileniyor.',
+        'Çözünürlük değiştiğinde izleme duraklar; yanlış noktadan tetikleme yapılmaz.',
+        'Tanı kayıtları referans/okunan RGB, pencere, DPI ve hangi kartın bastığını gösteriyor.',
+        "Bu sürüm tam ekran sorunlarını ayırt etmek içindir; KAROS'ta doğrulanmış bir çözüm iddiası yoktur.",
+    )),
     ("2.1.5", (
         'Makro çalışırken tuş, süre, rastgelelik, izleme ve profil düzenleme kilitleniyor.',
         'Durdurulduğunda ayarlar yeniden düzenlenebiliyor; Durdur düğmesi hep erişilebilir.',

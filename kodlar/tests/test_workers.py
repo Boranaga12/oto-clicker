@@ -138,9 +138,26 @@ class WorkerTests(unittest.TestCase):
         worker = self.run_colors(['#000000', '#000000'], invert_color=True)
         worker.press_key.assert_called_once()
 
-    def test_single_rgb_step_is_a_different_color(self):
+    def test_small_rgb_jitter_is_not_a_different_color(self):
         worker = self.run_colors(['#fffffe', '#fffffe', '#ffffff'])
-        worker.press_key.assert_called_once()
+        worker.press_key.assert_not_called()
+
+    def test_karos_screenshot_jitter_does_not_press(self):
+        worker, engine = self.worker(screen_mode=True, target_color='#48cfbd')
+        pixels = Mock()
+        pixels.get.return_value = '#43d4c1'
+        worker.wait = lambda seconds: worker.stop() or True
+        worker.press_key = Mock()
+        worker._run_screen_mode(pixels)
+        worker.press_key.assert_not_called()
+
+    def test_return_inside_tolerance_cancels_pending_press(self):
+        worker = self.run_colors(['#000000', '#fafafb'])
+        worker.press_key.assert_not_called()
+
+    def test_change_beyond_tolerance_still_repeats(self):
+        worker = self.run_colors(['#fffff6'] * 6)
+        self.assertEqual(worker.press_key.call_count, 3)
 
     def test_new_pixel_selection_cancels_pending_press_for_old_target(self):
         worker, engine = self.worker(screen_mode=True, target_color='#ffffff')

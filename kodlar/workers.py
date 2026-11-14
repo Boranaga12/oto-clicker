@@ -10,7 +10,7 @@ from pynput import keyboard
 from pynput.mouse import Button
 
 from .models import KeyConfig, LEFT_MOUSE_NAMES, clamp_click_interval
-from .platform_win import PixelSampler, is_color_close, screen_bounds, foreground_description
+from .platform_win import MONITOR_COLOR_TOLERANCE, PixelSampler, is_color_close, screen_bounds, foreground_description
 
 
 RIGHT_MOUSE_NAMES = {"sağ klik", "sag klik", "right click", "sağ tık"}
@@ -234,17 +234,17 @@ class KeyClickerWorker(StoppableWorker):
             color = pixels.get(target[0], target[1])
             report = (target, color, bounds)
             if report != last_report:
-                status = "eşleşiyor" if color and is_color_close(color, target[2], threshold=0) else "farklı" if color else "okunamadı"
+                status = "eşleşiyor" if color and is_color_close(color, target[2], threshold=MONITOR_COLOR_TOLERANCE) else "farklı" if color else "okunamadı"
                 self.clicker.log_activity(
                     self.config.id_token + ":pixel",
-                    f"İzleme {self.config.key.upper()} [{self.config.id_token[:6]}] ({target[0]}, {target[1]}): referans={target[2]}, okunan={color or 'yok'}, {status}; ekran={bounds}; {foreground_description()}",
+                    f"İzleme {self.config.key.upper()} [{self.config.id_token[:6]}] ({target[0]}, {target[1]}): referans={target[2]}, okunan={color or 'yok'}, {status}; tolerans={MONITOR_COLOR_TOLERANCE}; ekran={bounds}; {foreground_description()}",
                 )
                 last_report = report
             if not color:
                 self.wait(0.1)
                 continue
 
-            if is_color_close(color, target[2], threshold=0):
+            if is_color_close(color, target[2], threshold=MONITOR_COLOR_TOLERANCE):
                 self.wait(0.05)
                 continue
 
@@ -259,7 +259,7 @@ class KeyClickerWorker(StoppableWorker):
                 if target[3] is not None and current_bounds is not None and current_bounds != target[3]:
                     return True
                 current = pixels.get(target[0], target[1])
-                return not current or is_color_close(current, target[2], threshold=0)
+                return not current or is_color_close(current, target[2], threshold=MONITOR_COLOR_TOLERANCE)
 
             if (
                 self._interruptible_delay(delay, color_returned)
