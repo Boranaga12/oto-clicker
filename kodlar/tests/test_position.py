@@ -247,6 +247,23 @@ class PositionPriorityTests(unittest.TestCase):
         self.assertTrue(controller.returning)
         controller.motion.drive.assert_called()
 
+    def test_writing_pause_cannot_complete_old_obstacle_evidence(self):
+        controller = self.controller()
+        controller.target = 100
+        controller.returning = True
+        controller.motion.holding = True
+        controller.steering.heading = math.pi
+        now = time.monotonic()
+        controller.gate.position_epoch = now-.1
+        for index in range(16):
+            controller.obstacles.samples.append((now-4+index*.25, (12, 0)))
+        with patch('kodlar.position_controller.foreground_window', return_value=100), \
+             patch('kodlar.position_controller.foreground_is_ours', return_value=False):
+            controller.evaluate((12, 0), now, 1)
+        self.assertIsNone(controller.obstacles.escape_origin)
+        self.assertEqual(len(controller.obstacles.samples), 0)
+        self.assertIsNone(controller.motion.drive.call_args.args[-1])
+
     def test_late_result_from_another_profile_cannot_unblock(self):
         controller = self.controller()
         controller.gate.set_position_blocked(True)

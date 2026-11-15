@@ -1,6 +1,7 @@
 """Curated notes bundled with the matching application release."""
 
 CURRENT_NOTES = (
+    'Yazı arası, engel kanıtı olarak biriktirilmez; yazıdan sonra kesintisiz hareket ölçümü yeniden başlar.',
     'Koordinatlar rakam rakam, yazı şekilleri ve gerçek ondalık noktalarıyla okunur; 3/6/8 ayrımı için özel sayısal tanıyıcı eklendi.',
     'Rakam tanıyıcı yerel çalışır; belirsiz görüntüde Windows OCR aynı yakalanmış kare üzerinden yedek olarak kullanılır.',
     'Maks aşılınca merkeze dönüş kilitlenir; okuma kesilse de W basılı kalır, güvenilir Min altı ölçümde bırakılır.',
@@ -10,6 +11,9 @@ CURRENT_NOTES = (
 )
 
 HISTORY = (
+    ("2.5.0", (
+        'Rakam bazında koordinat tanıyıcı, OCR kaybında kalıcı W dönüş kilidi ve gerçek durağanlıkla engel doğrulaması eklendi.',
+    )),
     ("2.4.0", (
     'Grup beklemeleri kartların arasına taşındı; tuş bırakıldıktan sonra beklenir ve rastgele ek süre açıkça gösterilir.',
     'Eski profillerin aralık/rastgele değerleri grup geçişlerine aktarılır; bağımsız kartların aralıkları korunur.',

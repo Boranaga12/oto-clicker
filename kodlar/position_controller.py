@@ -297,6 +297,7 @@ class PositionController:
             self.last_epoch = epoch
             self._request_after = max(self._request_after, epoch)
             self.sample = self.last_turn = None
+            self.obstacles.reset_evidence(stamp+1.0)
             self.verified_count = self.outside = self.inside = 0
         if stamp <= self._request_after or time.monotonic()-stamp > self.FRESH_SECONDS:
             self.gate.set_position_blocked(True)
@@ -400,6 +401,7 @@ class PositionController:
                 self.wake.wait(.5)
                 continue
             if self.gate.writer_pending():
+                self.obstacles.reset_evidence()
                 self.publish(generation, status='Yazının bitmesi bekleniyor')
                 self.wake.wait(.05)
                 continue
