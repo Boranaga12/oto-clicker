@@ -55,7 +55,8 @@ class PositionConfig:
             if isinstance(monitors, (list, tuple)) and monitors:
                 if all(isinstance(item, (list, tuple)) and len(item) == 4 for item in monitors):
                     config.monitors = tuple(tuple(int(v) for v in item) for item in monitors)
-            config.enabled = bool(raw.get('enabled', False)) and config.ready
+            # Enabled is the user's preference; readiness separately gates input.
+            config.enabled = raw.get('enabled', False) is True
             return config
         except (ValueError, TypeError, OverflowError):
             return cls()

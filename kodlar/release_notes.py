@@ -1,6 +1,16 @@
 """Curated notes bundled with the matching application release."""
 
 CURRENT_NOTES = (
+    'Alan seçme, kaldırma ve merkez güncelleme artık konum kartının Aktif tercihini sıfırlamaz.',
+    'Sabit koordinat panellerinde yazı satırı otomatik ayrılır; geniş seçim ve başlıklar için OCR iyileştirildi.',
+    'Aralıklı OCR hataları Maks dışına çıkış doğrulamasını sıfırlamaz; gerçek yakalama zamanı kullanılır.',
+    'Merkeze dönüşte W kesintisiz tutulur, yön A/D ile düzeltilir; yazı ve odak değişimi tuşları bırakır.',
+    'İlerleme durursa sırayla sol/sağ kaçınma denenir ve ardından yeniden merkeze yönelinir.',
+    'Kısa okuma kesintilerinde dönüş devam eder; uzun kesintide bekler ve okuma düzelince otomatik sürer.',
+)
+
+HISTORY = (
+    ("2.2.1", (
     'Koordinatlar hem oyun üzerindeki X/Y yazısından hem de sabit zemindeki X / Y göstergesinden seçilebilir.',
     'Başlatma kısayolu atayıcısı üstte, Üstte seçeneği ile Başlat düğmesi arasına taşındı.',
     'Aç/kapa tuşuna atanmış makro sistemi durdurur; izlemesi yalnızca seçilen renk bulununca çalışır.',
@@ -9,9 +19,7 @@ CURRENT_NOTES = (
     'Pasif konum kartı soluk gösterilir; ayar düğmeleri kullanılabilir kalır.',
     '6/8 karışıklığına karşı rakam şekli ve zamansal doğrulama eklendi; aralıklı okumada merkez kaydı iyileştirildi.',
     'Dönüş ve yürüyüş basışları uzatıldı. Kısa okuma kaybında son konumdan sınırlı tahminle devam edilir.',
-)
-
-HISTORY = (
+    )),
     ("2.2.0", (
     'Her profile sabit Konum Kontrolü kartı eklendi; alan, merkez, Maks ve Min profile kaydedilir.',
     'Karos X/Y koordinatları Windows OCR ile yerel okunur; alan seçimi canlı çerçeveyle gösterilir.',

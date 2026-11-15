@@ -224,7 +224,6 @@ class PositionPanel(tk.Frame):
             return
         self.model.region, self.model.display = region, bounds
         self.model.monitors = monitor_layout()
-        self.model.enabled = False
         self.persist()
 
     def selection_cancelled(self, message):
@@ -237,7 +236,6 @@ class PositionPanel(tk.Frame):
         self.cancel_selection()
         self.model.region = self.model.display = None
         self.model.monitors = None
-        self.model.enabled = False
         self.persist()
 
     def take_center(self):
@@ -281,16 +279,16 @@ class PositionPanel(tk.Frame):
                 if self.pending_center and state.get('available') is False:
                     self.pending_center = False
                 if (self.pending_center and candidate and
-                        time.monotonic()-state.get('center_stamp', 0) > .75):
+                        time.monotonic()-state.get('center_stamp', 0) > self.engine.position_controller.FRESH_SECONDS):
                     self.pending_center = False
                     self.error_label.configure(text='Ölçüm güncelliğini yitirdi; merkezi yeniden alın.')
                 if (self.pending_center and candidate and not running
-                        and time.monotonic()-state.get('center_stamp', 0) <= .75):
+                        and time.monotonic()-state.get('center_stamp', 0) <= self.engine.position_controller.FRESH_SECONDS):
                     self.pending_center = False
                     self.model.center = tuple(candidate)
                     self.persist()
                 point = state.get('point')
-                fresh = time.monotonic()-state.get('stamp', 0) <= .75
+                fresh = time.monotonic()-state.get('stamp', 0) <= self.engine.position_controller.FRESH_SECONDS
                 current = f'X {point[0]:.1f}   Y {point[1]:.1f}' if point and fresh else '—'
                 center = self.model.center
                 reference = f'X {center[0]:.1f}   Y {center[1]:.1f}' if center else 'Kaydedilmedi'

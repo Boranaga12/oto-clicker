@@ -72,6 +72,16 @@ class InteractionPolishTests(unittest.TestCase):
         self.assertGreater(self.app.panic_btn.winfo_x(), self.app.chk_topmost.winfo_x())
         self.assertLess(self.app.panic_btn.winfo_x(), self.app.status_badge.winfo_x())
 
+    def test_position_selection_preserves_active_preference(self):
+        panel = self.app.position_panel
+        panel.model.enabled = True
+        with patch.object(panel, 'persist'):
+            panel.selected((10, 20, 90, 20), (0, 0, 1920, 1080))
+            self.assertTrue(panel.model.enabled)
+            panel.remove_region()
+            self.assertTrue(panel.model.enabled)
+            self.assertIsNone(panel.model.region)
+
     def test_log_panel_height_is_saved_and_does_not_hide_list(self):
         height = self.app.content_split.winfo_height()
         self.app.content_split.sash_place(0, 0, height-157)

@@ -47,10 +47,13 @@ görünür kalır. Ekran düzeni değişirse alanı yeniden seçin.
 
 Karakter dururken **Anlık Konumu Al** ile üç tutarlı okumadan merkez kaydedin.
 `0 ≤ Min < Maks` olacak şekilde mesafeleri ayarlayıp kartı etkinleştirin.
-İki okumada Maks aşılırsa normal makrolar durur; kısa W ilerlemeleri ve A/D
-dönüşleriyle Min mesafesine dönülür. Bu özellik engellerin etrafından yol bulmaz.
-Hareket engellenirse veya konum okunamazsa tuşlar bırakılır ve normal makrolar
-bekletilir. Sorunu giderip sistemi durdurun ve yeniden başlatın.
+İki güvenilir okumada Maks aşılırsa normal makrolar durur; W sürekli basılı
+tutulurken A/D ile yön düzeltilerek Min mesafesine dönülür. Kısa OCR hataları
+bu iki ölçümün doğrulamasını sıfırlamaz. İlerleme durursa önce bir yana dönülür,
+biraz ilerlenir, sonra yeniden merkez hedeflenir; sonraki denemede diğer yan
+denenir. Bu, koordinat geri bildirimli kaçınmadır; haritadan rota çıkarmaz.
+Bir dönüş en fazla 90 saniye etkin yürüyüş ve sekiz kaçınma dener; aşılamayan
+engelde normal makrolar bekletilir ve durum kartta açıklanır.
 
 Yazı bölümleri yürüyüşten önceliklidir; yazı bitince yeni konum doğrulanır.
 Yazı dışındaki W/A/S/D kartları geçici olarak bastırılır; kayıtlı aktiflikleri
@@ -61,11 +64,12 @@ yapılır. Ek Python paketi veya bulut servisi kullanılmaz. Windows OCR dili yo
 kart açıklamayla pasif kalır; Windows dil ayarlarından OCR destekli bir dil
 kurulmalıdır. Görüntüler diske veya ağa gönderilmez.
 
-Kısa OCR kesintilerinde dönüş iptal edilmez: son doğrulanmış konumdan en fazla
-2,5 saniyelik pencere içinde toplam 0,6 saniye ek W hareketi yapılabilir. Hız
-biliniyorsa tahmini ek yol 1,5 koordinat birimiyle de sınırlanır. Tahmini varış
-normal makroları açmaz; yeniden gerçek koordinat okunmalıdır. Yazı, odak kaybı
-ve durdurma bu hareketi derhal keser.
+Kısa OCR kesintilerinde dönüş iptal edilmez: son doğrulanmış konumdan sekiz
+saniyeye kadar aynı yürüyüş sürdürülür. Öğrenilen hız/yön varsa tahmini varışta
+gerçek ölçüm beklenir; tahmin normal makroları açmaz. Daha uzun kesintide W
+bırakılır, okuma düzelince dönüş otomatik sürer. Yazı, odak kaybı ve durdurma
+yürüyüş tuşlarını derhal bırakır. Alanı kaldırmak Aktif tercihini değiştirmez;
+eksik alan veya merkez tamamlanana kadar sistemin başlaması engellenir.
 
 Aç/kapa kısayoluna atanmış makro gönderildiğinde sistem kendini durdurur. Bu
 kartın izlemesi seçilen renk **bulununca** çalışır. Diğer kartlar renk farklıyken

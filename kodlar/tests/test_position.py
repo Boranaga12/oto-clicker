@@ -18,6 +18,7 @@ from kodlar.config import AppConfig
 from kodlar.engine import RandomizedAutoClicker
 from kodlar.models import KeyConfig
 from kodlar.sequences import SequenceGroup, SequenceItem, WritingBlock
+from kodlar.walking_input import ContinuousWalker, WalkRequest
 
 
 class PositionModelTests(unittest.TestCase):
@@ -30,6 +31,17 @@ class PositionModelTests(unittest.TestCase):
         for text in ('676 77.5', '67.6', '67.6 77.5 10.0', '67.6 77.5\n10.0', '67.6 77.5\n69.0 87.1'):
             self.assertIsNone(parse_coordinates(text))
 
+    def test_ocr_can_read_a_labelled_panel_without_ignoring_extra_numbers(self):
+        self.assertEqual(CoordinateOCR.parse_frame('Konum\n71.9 / 57.2'), (71.9, 57.2))
+        self.assertIsNone(CoordinateOCR.parse_frame('71.9 / 57.2\n10.0'))
+        self.assertIsNone(CoordinateOCR.parse_frame('71.9 / 57.2\n75.7 / 53.0'))
+
+    def test_enabled_preference_survives_missing_region_round_trip(self):
+        config = PositionConfig(enabled=True, center=(71.9, 57.2))
+        restored = PositionConfig.from_dict(config.to_dict())
+        self.assertTrue(restored.enabled)
+        self.assertFalse(restored.ready)
+
     def test_migration_preserves_position_preferences(self):
         settings = PositionConfig(True, (1, 2, 90, 20), (0, 0, 1920, 1080), (67.6, 77.5))
         data = _normalise({'profiles': {'Karos': []}, 'positions': {'Karos': settings.to_dict()}})
@@ -41,7 +53,8 @@ class PositionModelTests(unittest.TestCase):
         config = PositionConfig.from_dict({'enabled': True, 'maximum': float('nan'),
                                           'minimum': -5, 'region': [0, 0, 900, 500]})
         self.assertEqual((config.maximum, config.minimum), (10, 2))
-        self.assertFalse(config.enabled)
+        self.assertTrue(config.enabled)
+        self.assertFalse(config.ready)
 
     def test_stationary_center_requires_three_readings_and_jumps_are_rejected(self):
         samples = ReadingFilter()
@@ -76,16 +89,15 @@ class PositionModelTests(unittest.TestCase):
         self.assertTrue(samples.accept((76.6, 61.2), 1.5))
         self.assertEqual(samples.last[0], (76.6, 61.2))
 
-    def test_turns_are_rotation_followed_by_forward_motion(self):
+    def test_corrections_only_turn_while_w_is_managed_by_walker(self):
         steering = Steering()
         config = PositionConfig(center=(0, 0))
-        self.assertEqual(steering.commands((12, 0), config)[0][0], 'w')
+        self.assertIsNone(steering.correction((12, 0), config))
         steering.observe((12, 0), (13, 0), (0, 0))
-        commands = steering.commands((13, 0), config)
-        self.assertEqual([key for key, _ in commands], ['a', 'w'])
+        self.assertEqual(steering.correction((13, 0), config)[0], 'a')
         steering.observe((13, 0), (13, 1), (0, 0), ('a', .08))
         self.assertIsNotNone(steering.a_rate)
-        self.assertTrue(all(.1 <= duration <= .4 for _, duration in steering.commands((13, 1), config)))
+        self.assertTrue(.1 <= steering.correction((13, 1), config)[1] <= .4)
 
 
 class PositionPriorityTests(unittest.TestCase):
@@ -97,6 +109,7 @@ class PositionPriorityTests(unittest.TestCase):
         controller.generation = 1
         controller.gate.position_enabled = True
         controller.gate.position_valid_until = time.monotonic()+.75
+        controller.motion = Mock(holding=False, turning=False, total=0.0)
         return controller
 
     def test_writing_end_keeps_normal_input_blocked_until_new_position(self):
@@ -116,7 +129,7 @@ class PositionPriorityTests(unittest.TestCase):
     def test_stale_measurement_cannot_unblock_normal_macros(self):
         controller = self.controller()
         controller.gate.set_position_blocked(True)
-        controller.allow_normal(1, time.monotonic()-1)
+        controller.allow_normal(1, time.monotonic()-2)
         self.assertFalse(controller.gate.allowed())
 
     def test_expired_measurement_closes_previously_open_gate(self):
@@ -130,50 +143,75 @@ class PositionPriorityTests(unittest.TestCase):
         controller.target = 100
         controller.returning = True
         controller.filter.accept((11, 0), time.monotonic())
-        controller.pulse = Mock(return_value=True)
         with patch('kodlar.position_controller.foreground_window', return_value=100):
             self.assertTrue(controller.continue_estimate(1))
             self.assertFalse(controller.gate.allowed())
             controller.continue_estimate(1)
             controller.continue_estimate(1)
-            self.assertFalse(controller.continue_estimate(1))
-        self.assertLessEqual(controller.blind_spent, .6)
+            self.assertTrue(controller.continue_estimate(1))
+        self.assertGreaterEqual(controller.motion.drive.call_count, 4)
 
     def test_prediction_expires_and_cannot_cross_writing_barrier(self):
         controller = self.controller()
         controller.target = 100
         controller.returning = True
-        controller.pulse = Mock()
-        controller.filter.accept((11, 0), time.monotonic()-3)
+        controller.filter.accept((11, 0), time.monotonic()-controller.READ_GRACE-1)
         self.assertFalse(controller.continue_estimate(1))
         controller.filter.accept((11, 0), time.monotonic())
         controller.gate.position_epoch = time.monotonic()+1
         self.assertFalse(controller.continue_estimate(1))
-        controller.pulse.assert_not_called()
+        controller.motion.drive.assert_not_called()
 
     def test_stop_cancels_walking_without_releasing_unowned_keys(self):
         controller = self.controller()
         controller.engine.is_running = False
-        self.assertFalse(controller.pulse('w', .12, 1, time.monotonic()))
+        motion = ContinuousWalker(controller)
+        motion.request = WalkRequest(1, 100, 0, time.monotonic()+5)
+        self.assertTrue(motion.cancelled())
         controller.engine.keyboard.press.assert_not_called()
         controller.engine.keyboard.release.assert_not_called()
 
-    def test_failure_limits_keep_normal_macros_blocked(self):
-        for reason in ('stationary', 'unproductive', 'timeout'):
-            with self.subTest(reason=reason):
-                controller = self.controller()
-                controller.target = 100
-                controller.pulse = Mock()
-                if reason == 'timeout':
-                    controller.spent = 20
-                else:
-                    setattr(controller.steering, reason, 3 if reason == 'stationary' else 8)
-                with patch('kodlar.position_controller.foreground_window', return_value=100), \
-                     patch('kodlar.position_controller.foreground_is_ours', return_value=False):
-                    controller.evaluate((12, 0), time.monotonic(), 1)
-                controller.pulse.assert_not_called()
-                self.assertIsNotNone(controller.failure)
-                self.assertFalse(controller.gate.allowed())
+    def test_prolonged_return_keeps_normal_macros_blocked(self):
+        controller = self.controller()
+        controller.target = 100
+        controller.returning = True
+        controller.motion.total = 90.1
+        with patch('kodlar.position_controller.foreground_window', return_value=100), \
+             patch('kodlar.position_controller.foreground_is_ours', return_value=False):
+            controller.evaluate((12, 0), time.monotonic(), 1)
+        controller.motion.drive.assert_not_called()
+        self.assertIsNotNone(controller.failure)
+        self.assertFalse(controller.gate.allowed())
+
+    def test_stalled_progress_alternates_detours_then_reaims(self):
+        controller = self.controller()
+        controller.target = 100
+        controller.returning = True
+        controller.best_gap = 12
+        controller.motion.total = 6.5
+        with patch('kodlar.position_controller.foreground_window', return_value=100), \
+             patch('kodlar.position_controller.foreground_is_ours', return_value=False):
+            controller.evaluate((12, 0), time.monotonic(), 1)
+            self.assertEqual(controller.motion.drive.call_args.args[-1][0], 'a')
+            controller.motion.total = controller.detour_until+6.5
+            controller.evaluate((12, 0), time.monotonic(), 1)
+            self.assertEqual(controller.motion.drive.call_args.args[-1][0], 'd')
+            controller.motion.total = controller.detour_until+.1
+            controller.evaluate((10, 0), time.monotonic(), 1)
+            self.assertEqual(controller.best_gap, 10)
+        self.assertIsNone(controller.failure)
+
+    def test_missing_frame_does_not_erase_outside_max_confirmation(self):
+        controller = self.controller()
+        with patch('kodlar.position_controller.foreground_window', return_value=100), \
+             patch('kodlar.position_controller.foreground_is_ours', return_value=False), \
+             patch('kodlar.position_controller.window_at_point', return_value=100):
+            controller.evaluate((12, 0), time.monotonic(), 1)
+            self.assertEqual(controller.outside, 1)
+            controller.missing_reading(1)
+            controller.evaluate((12, 0), time.monotonic(), 1)
+        self.assertTrue(controller.returning)
+        controller.motion.drive.assert_called()
 
     def test_late_result_from_another_profile_cannot_unblock(self):
         controller = self.controller()
@@ -184,8 +222,10 @@ class PositionPriorityTests(unittest.TestCase):
     def test_focus_loss_prevents_wasd_and_preserves_other_keys(self):
         controller = self.controller()
         controller.target = 100
-        with patch('kodlar.position_controller.foreground_window', return_value=200):
-            self.assertFalse(controller.pulse('w', .12, 1, time.monotonic()))
+        motion = ContinuousWalker(controller)
+        motion.request = WalkRequest(1, 100, 0, time.monotonic()+5)
+        with patch('kodlar.walking_input.foreground_window', return_value=200):
+            self.assertTrue(motion.cancelled())
         controller.engine.keyboard.press.assert_not_called()
         controller.engine.keyboard.release.assert_not_called()
 
@@ -196,9 +236,10 @@ class PositionPriorityTests(unittest.TestCase):
         pressed = threading.Event()
         entered = threading.Event()
         controller.engine.keyboard.press.side_effect = lambda _key: pressed.set()
-        with patch('kodlar.position_controller.foreground_window', return_value=100):
-            movement = threading.Thread(target=lambda: controller.pulse('w', .3, 1, time.monotonic()))
-            movement.start()
+        motion = ContinuousWalker(controller)
+        with patch('kodlar.walking_input.foreground_window', return_value=100):
+            self.addCleanup(motion.stop)
+            motion.drive(1, 100, 0, time.monotonic()+5)
             self.assertTrue(pressed.wait(1))
             def write():
                 with controller.gate.exclusive(stop.is_set) as admitted:
@@ -207,13 +248,12 @@ class PositionPriorityTests(unittest.TestCase):
             writer = threading.Thread(target=write)
             writer.start()
             self.assertTrue(entered.wait(1))
-            movement.join(1)
             writer.join(1)
+            motion.stop()
         controller.engine.keyboard.release.assert_called_once_with('w')
 
     def test_maximum_entry_and_minimum_exit_use_two_readings(self):
         controller = self.controller()
-        controller.pulse = Mock(return_value=True)
         with patch('kodlar.position_controller.foreground_window', return_value=100), \
              patch('kodlar.position_controller.foreground_is_ours', return_value=False), \
              patch('kodlar.position_controller.window_at_point', return_value=100):
@@ -221,15 +261,50 @@ class PositionPriorityTests(unittest.TestCase):
             self.assertFalse(controller.returning)
             controller.evaluate((11, 0), time.monotonic(), 1)
             self.assertTrue(controller.returning)
-            controller.pending_observation = None
             controller.evaluate((1, 0), time.monotonic(), 1)
             self.assertTrue(controller.returning)
             controller.evaluate((1, 0), time.monotonic(), 1)
             self.assertFalse(controller.returning)
             self.assertTrue(controller.gate.allowed())
 
+    def test_w_is_held_across_updates_and_a_correction(self):
+        controller = self.controller()
+        motion = ContinuousWalker(controller)
+        down = threading.Event()
+        corrected = threading.Event()
+        def press(key):
+            if key == 'w':
+                down.set()
+        controller.engine.keyboard.press.side_effect = press
+        controller.engine.keyboard.release.side_effect = lambda key: corrected.set() if key == 'a' else None
+        with patch('kodlar.walking_input.foreground_window', return_value=100):
+            try:
+                motion.drive(1, 100, 0, time.monotonic()+5)
+                self.assertTrue(down.wait(1))
+                motion.drive(1, 100, 0, time.monotonic()+5, ('a', .08))
+                self.assertTrue(corrected.wait(1))
+                motion.drive(1, 100, 0, time.monotonic()+5)
+                self.assertTrue(motion.holding)
+                self.assertEqual(sum(call.args == ('w',) for call in controller.engine.keyboard.press.call_args_list), 1)
+                controller.engine.keyboard.release.assert_called_once_with('a')
+            finally:
+                motion.stop()
+        self.assertEqual(controller.engine.keyboard.release.call_args.args, ('w',))
+
 
 class PositionEngineTests(unittest.TestCase):
+    def test_enabled_but_incomplete_position_cannot_start_the_engine(self):
+        with patch('kodlar.engine.Controller'), patch('kodlar.engine.keyboard.Controller'):
+            engine = RandomizedAutoClicker(AppConfig())
+        try:
+            engine.position_controller.config = PositionConfig(enabled=True)
+            engine.position_controller.snapshot['available'] = True
+            engine.set_enabled(True)
+            self.assertFalse(engine.is_running)
+            self.assertTrue(engine.position_controller.config.enabled)
+        finally:
+            engine.stop()
+
     def test_wasd_suppression_preserves_preferences_and_exempts_text_members(self):
         with patch('kodlar.engine.Controller'), patch('kodlar.engine.keyboard.Controller'):
             engine = RandomizedAutoClicker(AppConfig())
@@ -276,6 +351,8 @@ class KarosScreenshotOCRTests(unittest.TestCase):
             ('karos-76.png', (10, 10, 82, 18), (76.6, 61.2)),
             ('karos-75.png', (26, 25, 81, 17), (75.7, 53.0)),
             ('karos-stable.png', (33, 33, 96, 23), (71.9, 57.2)),
+            ('karos-stable.png', (24, 29, 112, 32), (71.9, 57.2)),
+            ('karos-stable.png', (0, 0, 148, 86), (71.9, 57.2)),
         ):
             with self.subTest(image=name):
                 encoded = base64.b64encode((fixtures/name).read_bytes()).decode('ascii')

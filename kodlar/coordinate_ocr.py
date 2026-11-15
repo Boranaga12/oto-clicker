@@ -7,6 +7,8 @@ import os
 import queue
 import subprocess
 import threading
+import time
+import re
 
 from .position_model import parse_coordinates
 
@@ -82,8 +84,46 @@ public static class CoordinateFrames {
     frames.Add(Encode(mask, true, 4));
     frames.Add(Encode(mask, true, 6));
    }
+   // Status panels are often selected with their border. Extract the bright
+   // text row before OCR instead of asking OCR to parse the entire panel.
+   using(Bitmap band=TextBand(source)) {
+    frames.Add(Encode(band, false, 4));
+    frames.Add(Encode(band, false, 6));
+    using(Bitmap negative=new Bitmap(band.Width,band.Height,PixelFormat.Format32bppArgb)) {
+     for(int py=0;py<band.Height;py++) for(int px=0;px<band.Width;px++) {
+      Color c=band.GetPixel(px,py);
+      int grey=(c.R*299+c.G*587+c.B*114)/1000;
+      int value=Math.Min(255,Math.Max(0,(210-grey)*2));
+      negative.SetPixel(px,py,Color.FromArgb(value,value,value));
+     }
+     frames.Add(Encode(negative,true,4));
+     frames.Add(Encode(negative,true,6));
+    }
+   }
    return new Batch {Frames=frames.ToArray(), Shapes=shapes.ToArray()};
   }
+ }
+ static Bitmap TextBand(Bitmap source) {
+  int first=-1,bestTop=0,bestBottom=source.Height-1,bestScore=0,sum=0;
+  for(int y=0;y<=source.Height;y++) {
+   int count=0;
+   if(y<source.Height) for(int x=0;x<source.Width;x++) {
+    Color c=source.GetPixel(x,y);
+    int lo=Math.Min(c.R,Math.Min(c.G,c.B)),hi=Math.Max(c.R,Math.Max(c.G,c.B));
+    if(lo>=145 && hi-lo<=65) count++;
+   }
+   if(count>=Math.Max(2,source.Width/50)) {
+    if(first<0) first=y;
+    sum+=count;
+   } else if(first>=0) {
+    int height=y-first;
+    if(height>=5 && height<=40 && sum<height*source.Width*.65 && sum>bestScore) {
+     bestTop=Math.Max(0,first-2);bestBottom=Math.Min(source.Height-1,y+1);bestScore=sum;
+    }
+    first=-1;sum=0;
+   }
+  }
+  return source.Clone(new Rectangle(0,bestTop,source.Width,bestBottom-bestTop+1),PixelFormat.Format32bppArgb);
  }
  static int[] Holes(Bitmap mask) {
   int w=mask.Width,h=mask.Height;
@@ -171,6 +211,7 @@ public static class CoordinateFrames {
    $request = $line | ConvertFrom-Json
    $r = $request.region
    if ($r.Count -ne 4 -or $r[2] -lt 8 -or $r[2] -gt 640 -or $r[3] -lt 8 -or $r[3] -gt 180) { throw 'Invalid coordinate region' }
+   $captureTimer = [System.Diagnostics.Stopwatch]::StartNew()
    $batch = [CoordinateFrames]::Make($r[0],$r[1],$r[2],$r[3],$request.image)
    $frames = $batch.Frames
    $texts = @()
@@ -195,7 +236,7 @@ public static class CoordinateFrames {
      $writer.Dispose(); $stream.Dispose()
     }
    }
-   [Console]::WriteLine((@{id=$request.id; texts=$texts; indices=$indices; shapes=$batch.Shapes} | ConvertTo-Json -Depth 5 -Compress))
+   [Console]::WriteLine((@{id=$request.id; texts=$texts; indices=$indices; shapes=$batch.Shapes; age_ms=$captureTimer.Elapsed.TotalMilliseconds} | ConvertTo-Json -Depth 5 -Compress))
   } catch { [Console]::WriteLine((@{id=$request.id; error=$_.Exception.Message} | ConvertTo-Json -Compress)) }
  }
 } catch { [Console]::WriteLine((@{ready=$false; error=$_.Exception.Message} | ConvertTo-Json -Compress)) }
@@ -211,6 +252,22 @@ class CoordinateOCR:
         self.last_texts = []
         self.preferred = None
         self.region = None
+        self.capture_stamp = 0.0
+
+    @staticmethod
+    def parse_frame(text):
+        point = parse_coordinates(text)
+        if point is not None:
+            return point
+        candidates = []
+        for line in text.splitlines():
+            candidate = parse_coordinates(line)
+            if candidate is not None:
+                candidates.append(candidate)
+            elif re.search(r'\d', line):
+                return None  # Do not select a pair out of extra numeric output.
+        unique = set(candidates)
+        return unique.pop() if len(unique) == 1 else None
 
     @staticmethod
     def shape_allows(text, shapes):
@@ -278,7 +335,8 @@ class CoordinateOCR:
                 if response.get('id') != self.serial or 'error' in response:
                     raise RuntimeError(response.get('error', 'Geçersiz OCR yanıtı'))
                 self.last_texts = response.get('texts', [])
-                points = [parse_coordinates(text) if self.shape_allows(text, response.get('shapes', []))
+                self.capture_stamp = time.monotonic()-float(response.get('age_ms', 0))/1000
+                points = [self.parse_frame(text) if self.shape_allows(text, response.get('shapes', []))
                           else None for text in self.last_texts]
                 indexed = dict(zip(response['indices'], points))
                 primary = indexed.get(1)

@@ -9,6 +9,7 @@ import time
 from .coordinate_ocr import CoordinateOCR
 from .platform_win import foreground_window, foreground_is_ours, screen_bounds, window_at_point, monitor_layout
 from .position_model import PositionConfig, ReadingFilter, distance
+from .walking_input import ContinuousWalker
 
 LOGGER = logging.getLogger(__name__)
 
@@ -52,24 +53,25 @@ class Steering:
         else:
             self.unproductive = 0
 
-    def commands(self, point, config):
-        margin = distance(point, config.center)-config.minimum
-        walk = min(0.36, max(0.14, margin*0.04))
+    def correction(self, point, config):
         if self.heading is None:
-            return [('w', walk)]
+            return None
         desired = math.atan2(config.center[1]-point[1], config.center[0]-point[0])
         error = signed_angle(desired-self.heading)
         if abs(error) <= 0.25:
-            return [('w', walk)]
+            return None
         if self.a_rate is None:
             turn = ('a', 0.18)
         else:
             turn = ('a' if error*self.a_rate > 0 else 'd',
                     min(0.28, max(0.12, abs(error/self.a_rate))))
-        return [turn, ('w', walk)]
+        return turn
 
 
 class PositionController:
+    FRESH_SECONDS = 1.5
+    READ_GRACE = 8.0
+
     def __init__(self, engine, reader_factory=CoordinateOCR):
         self.engine = engine
         self.gate = engine.writing_gate
@@ -85,29 +87,32 @@ class PositionController:
         self.snapshot = {'status': 'Alan seçin', 'available': None}
         self.target = None
         self.center_requested = False
-        self.held_key = None
+        self.motion = ContinuousWalker(self)
         self.reset_state()
 
     def reset_state(self):
         self.filter = ReadingFilter()
         self.steering = Steering()
         self.returning = False
-        self.outside = self.inside = 0
-        self.spent = 0.0
+        self.outside = self.inside = self.verified_count = 0
+        self.outside_stamp = 0.0
         self.failure = None
         self.last_epoch = 0.0
-        self.pending_observation = None
         self._request_after = 0.0
-        self.verified_count = 0
+        self.sample = None
+        self.last_turn = None
         self.estimate = None
-        self.estimate_heading = None
-        self.blind_spent = 0.0
-        self.blind_until = 0.0
+        self.estimate_stamp = 0.0
+        self.return_started = self.progress_at = 0.0
+        self.best_gap = math.inf
+        self.detours = 0
+        self.detour_until = 0.0
 
     def configure(self, profile, config):
         with self.lock:
             if self.profile == profile and self.config == config:
                 return
+            self.motion.halt()
             self.generation += 1
             self.profile = profile
             self.config = PositionConfig.from_dict(config.to_dict())
@@ -115,8 +120,8 @@ class PositionController:
             self.target = None
             self.reset_state()
             self.snapshot = {'generation': self.generation, 'profile': profile,
-                             'status': 'Konum okunuyor' if config.region else 'Alan seçin',
-                             'available': None, 'point': None, 'distance': None}
+                'status': 'Konum okunuyor' if config.region else 'Alan seçin',
+                'available': None, 'point': None, 'distance': None}
             self.gate.position_enabled = self.config.enabled
             self.gate.set_position_blocked(self.config.enabled and self.engine.is_running)
             if self.thread is None:
@@ -144,6 +149,9 @@ class PositionController:
         self.wake.set()
 
     def running_changed(self, active):
+        self.motion.halt()
+        self.sample = self.last_turn = None
+        self.estimate = None
         if active:
             self.target = None
         with self.gate.condition:
@@ -153,204 +161,202 @@ class PositionController:
         if not active:
             self.failure = None
             self.returning = False
-            self.pending_observation = None
             self.outside = self.inside = 0
-            self.spent = 0.0
-            self.steering.stationary = self.steering.unproductive = 0
         self.wake.set()
 
     def allow_normal(self, generation, stamp):
         with self.gate.condition:
             if (generation == self.generation and stamp > self.gate.position_epoch
-                    and not self.gate.writer_pending() and time.monotonic()-stamp <= .75):
+                    and not self.gate.writer_pending()
+                    and time.monotonic()-stamp <= self.FRESH_SECONDS
+                    and not self.motion.holding):
                 self.gate.set_position_blocked(False)
 
     def publish_failure(self, generation, status):
         self.failure = status
+        self.motion.halt()
         self.gate.set_position_blocked(self.config.enabled and self.engine.is_running)
         self.publish(generation, status=status)
 
-    def cancel_pulse(self, generation, stamp):
-        return (self.closed.is_set() or generation != self.generation
-                or not self.engine.is_running or not self.config.enabled
-                or time.monotonic() > max(stamp+0.75, self.blind_until) or self.gate.writer_pending()
-                or self.target is None or foreground_window() != self.target)
-
-    def pulse(self, key, seconds, generation, stamp):
-        cancelled = lambda: self.cancel_pulse(generation, stamp)
-        with self.gate.movement(cancelled) as admitted:
-            if not admitted:
+    def bind_target(self, generation):
+        current = foreground_window()
+        if foreground_is_ours():
+            self.publish(generation, status='Oyun penceresine geçin')
+            return False
+        if self.target is None:
+            x, y, width, height = self.config.region
+            candidate = window_at_point(x+width//2, y+height//2)
+            if candidate is None or candidate != current:
+                self.publish(generation, status='Koordinatların olduğu oyun penceresine geçin')
                 return False
-            with self.engine.input_lock:
-                if cancelled():
-                    return False
-                self.engine.mark_injected_key(key)
-                self.engine.keyboard.press(key)
-                self.held_key = key
-                started = time.monotonic()
-                try:
-                    deadline = started + min(0.4, max(0, seconds))
-                    while time.monotonic() < deadline:
-                        if cancelled():
-                            return False
-                        self.closed.wait(min(0.01, max(0, deadline-time.monotonic())))
-                    return True
-                finally:
-                    try:
-                        self.engine.keyboard.release(key)
-                    finally:
-                        self.held_key = None
-                        self.spent += time.monotonic()-started
+            self.target = candidate
+            if self.engine._writing_target is None:
+                self.engine._writing_target = candidate
+        if current != self.target:
+            self.publish(generation, status='Oyun penceresine geçin')
+            return False
+        return True
+
+    def drive(self, generation, stamp, turn=None):
+        if generation != self.generation or stamp <= self.gate.position_epoch:
+            return False
+        self.motion.drive(generation, self.target, self.gate.position_epoch,
+                          stamp+self.READ_GRACE, turn)
+        return True
 
     def evaluate(self, point, stamp, generation):
+        if generation != self.generation:
+            return
         config = self.config
-        if not self.engine.is_running or not config.enabled:
+        if not self.engine.is_running or not config.enabled or not config.ready:
+            self.motion.halt()
             self.returning = False
             self.outside = self.inside = 0
-            self.failure = None
-            # Keep enabled navigation closed while stopped, including the
-            # startup handover before the engine's enabled event is set.
             self.gate.set_position_blocked(config.enabled)
-            self.publish(generation, status='Konum okunuyor' if config.center else 'Merkezi kaydedin')
+            self.publish(generation, status='Alan seçin' if not config.region else
+                         'Merkezi kaydedin' if config.center is None else 'Konum okunuyor')
             return
         if self.gate.writer_pending():
+            self.motion.halt()
             self.publish(generation, status='Yazının bitmesi bekleniyor')
             return
         epoch = self.gate.position_epoch
         if epoch != self.last_epoch:
-            self.pending_observation = None
+            self.motion.halt()
             self.last_epoch = epoch
             self._request_after = max(self._request_after, epoch)
-            self.verified_count = 0
-            self.outside = self.inside = 0
-        if stamp <= self._request_after or time.monotonic()-stamp > 0.75:
+            self.sample = self.last_turn = None
+            self.verified_count = self.outside = self.inside = 0
+            self.estimate = None
+        if stamp <= self._request_after or time.monotonic()-stamp > self.FRESH_SECONDS:
             self.gate.set_position_blocked(True)
             self.publish(generation, status='Güncel konum bekleniyor')
             return
         if self.failure:
             self.publish_failure(generation, self.failure)
             return
-        current_window = foreground_window()
-        if foreground_is_ours():
+        if not self.bind_target(generation):
+            self.motion.halt()
             self.gate.set_position_blocked(True)
-            self.publish(generation, status='Oyun penceresine geçin')
+            self.sample = None
             return
-        if self.target is None:
-            x, y, width, height = config.region
-            candidate = window_at_point(x+width//2, y+height//2)
-            if candidate is None or candidate != current_window:
-                self.gate.set_position_blocked(True)
-                self.publish(generation, status='Koordinatların olduğu oyun penceresine geçin')
-                return
-            self.target = candidate
-            if self.engine._writing_target is None:
-                self.engine._writing_target = candidate
-        if current_window != self.target:
-            self.gate.set_position_blocked(True)
-            self.publish(generation, status='Oyun penceresine geçin')
-            return
+        total = self.motion.total
         gap = distance(point, config.center)
         self.verified_count += 1
-        if self.pending_observation:
-            before, ended, turn, walk_seconds = self.pending_observation
-            if stamp <= ended+0.05:
-                return
-            self.steering.observe(before, point, config.center, turn, walk_seconds)
-            self.pending_observation = None
-        self.estimate = point
-        self.estimate_heading = self.steering.heading
-        self.blind_spent = 0.0
-        if self.steering.stationary >= 3 or self.steering.unproductive >= 8 or self.spent >= 20:
-            self.publish_failure(generation, 'Merkeze ulaşılamadı; karakteri ve konumu kontrol edin')
-            return
+        if self.sample is not None and self.motion.holding:
+            before, previous, walked = self.sample
+            dt = total-walked
+            if dt >= .08 and stamp > previous:
+                turn = None
+                if self.last_turn and not self.motion.turning:
+                    turn = self.last_turn
+                    self.last_turn = None
+                self.steering.observe(before, point, config.center, turn, dt)
+        self.sample = (point, stamp, total)
+        self.estimate, self.estimate_stamp = point, stamp
         if not self.returning:
-            self.outside = self.outside+1 if gap > config.maximum else 0
-            if self.outside < 2:
-                if self.outside:
-                    self.gate.set_position_blocked(True)
-                elif self.verified_count >= 2:
+            if gap > config.maximum:
+                self.outside = self.outside+1 if stamp-self.outside_stamp <= 4 else 1
+                self.outside_stamp = stamp
+                self.gate.set_position_blocked(True)
+                if self.outside < 2:
+                    self.publish(generation, status='Mesafe doğrulanıyor')
+                    return
+                self.returning = True
+                self.return_started = self.progress_at = total
+                self.best_gap = gap
+                self.detours = 0
+                self.detour_until = 0.0
+                self.steering.stationary = self.steering.unproductive = 0
+            else:
+                self.outside = 0
+                if self.verified_count >= 2:
                     self.allow_normal(generation, stamp)
-                else:
-                    self.gate.set_position_blocked(True)
-                self.publish(generation, status='Mesafe doğrulanıyor' if self.outside else 'Konum okunuyor')
+                self.publish(generation, status='Konum okunuyor')
                 return
-            self.returning = True
-            self.spent = 0.0
         self.gate.set_position_blocked(True)
-        self.inside = self.inside+1 if gap <= config.minimum else 0
-        if self.inside:
-            if self.inside >= 2:
+        if gap <= config.minimum:
+            self.motion.halt()
+            self.inside += 1
+            if self.inside >= 2 and not self.motion.holding:
                 self.returning = False
                 self.outside = self.inside = 0
-                self.steering.stationary = self.steering.unproductive = 0
                 self.allow_normal(generation, stamp)
                 self.publish(generation, status='Merkeze ulaşıldı')
-            return
-        self.publish(generation, status='Merkeze dönüyor')
-        turn = None
-        walked = 0.0
-        for key, duration in self.steering.commands(point, config):
-            if not self.pulse(key, duration, generation, stamp):
-                self.steering.heading = None
-                return
-            if key != 'w':
-                turn = (key, duration)
-                if self.estimate_heading is not None and self.steering.a_rate is not None:
-                    self.estimate_heading += self.steering.a_rate*duration*(1 if key == 'a' else -1)
-                else:
-                    self.estimate_heading = None
             else:
-                walked += duration
-                self.advance_estimate(duration)
-        self.pending_observation = (point, time.monotonic(), turn, walked)
-
-    def advance_estimate(self, seconds):
-        if self.estimate is not None and self.estimate_heading is not None and self.steering.speed:
-            travel = seconds*self.steering.speed
-            self.estimate = (self.estimate[0]+math.cos(self.estimate_heading)*travel,
-                             self.estimate[1]+math.sin(self.estimate_heading)*travel)
+                self.publish(generation, status='Varış doğrulanıyor')
+            return
+        self.inside = 0
+        if total-self.return_started >= 90:
+            self.publish_failure(generation, 'Merkeze ulaşılamadı; yolu ve merkezi kontrol edin')
+            return
+        if gap < self.best_gap-.3:
+            self.best_gap = gap
+            self.progress_at = total
+        # A detour is driven by measured lack of progress, never by an OCR miss.
+        if total < self.detour_until:
+            self.drive(generation, stamp)
+            self.publish(generation, status='Engelin çevresinden yürüyor')
+            return
+        threshold = 6 if self.steering.a_rate is None else 3
+        if total-self.progress_at >= threshold:
+            self.detours += 1
+            if self.detours > 8:
+                self.publish_failure(generation, 'Engel aşılamadı; yolu ve merkezi kontrol edin')
+                return
+            turn = ('a' if self.detours % 2 else 'd', min(1.05, .45+.1*self.detours))
+            self.detour_until = total+turn[1]+1.4
+            self.progress_at = self.detour_until
+            self.best_gap = gap
+            self.last_turn = turn
+            self.drive(generation, stamp, turn)
+            self.publish(generation, status='Engel için sola sapıyor' if turn[0] == 'a' else 'Engel için sağa sapıyor')
+            return
+        turn = None
+        if not self.motion.turning:
+            turn = self.steering.correction(point, config)
+            if turn is not None:
+                self.last_turn = turn
+        self.drive(generation, stamp, turn)
+        self.publish(generation, status='Merkeze dönüyor')
 
     def continue_estimate(self, generation):
-        """Bridge a short OCR gap; predictions can never release normal macros."""
         self.gate.set_position_blocked(self.config.enabled and self.engine.is_running)
         if (not self.returning or not self.engine.is_running or self.failure
-                or not self.filter.last or generation != self.generation
-                or self.gate.writer_pending()):
+                or not self.filter.last or generation != self.generation or self.gate.writer_pending()):
+            self.motion.halt()
             return False
         point, stamp = self.filter.last
-        if (stamp <= self.gate.position_epoch or time.monotonic()-stamp > 2.5
-                or self.blind_spent >= .6 or self.target is None
-                or foreground_window() != self.target):
+        now = time.monotonic()
+        if (stamp <= self.gate.position_epoch or now-stamp > self.READ_GRACE
+                or self.target is None or foreground_window() != self.target):
+            self.motion.halt()
+            self.sample = None
+            self.publish(generation, status='Dönüş bekliyor; güncel koordinat aranıyor')
             return False
-        estimate = self.estimate or point
-        gap = distance(estimate, self.config.center)-self.config.minimum
-        if gap <= .75:
-            return False
-        heading = self.estimate_heading
-        if heading is not None:
-            desired = math.atan2(self.config.center[1]-estimate[1], self.config.center[0]-estimate[0])
-            if abs(signed_angle(desired-heading)) > .5:
+        # Keep the same W admission across missing frames. Never count estimates
+        # as arrival measurements or create blind obstacle turns.
+        if self.estimate is not None and self.steering.heading is not None and self.steering.speed:
+            elapsed = max(0, now-self.estimate_stamp)
+            travel = min(elapsed, .5)*self.steering.speed if self.motion.holding else 0
+            self.estimate = (self.estimate[0]+math.cos(self.steering.heading)*travel,
+                             self.estimate[1]+math.sin(self.steering.heading)*travel)
+            self.estimate_stamp = now
+            if distance(self.estimate, self.config.center) <= self.config.minimum+.2:
+                self.motion.halt()
+                self.publish(generation, status='Tahmini varış; gerçek koordinat bekleniyor')
                 return False
-        elif self.pending_observation and self.pending_observation[2] is not None:
-            # An unmeasured turn cannot justify a blind forward heading.
-            return False
-        seconds = min(.24, .6-self.blind_spent)
-        if self.steering.speed:
-            seconds = min(seconds, min(1.5-self.blind_spent*self.steering.speed, gap-.5)/self.steering.speed)
-            if self.blind_spent*self.steering.speed >= 1.5:
-                return False
-        self.blind_until = min(stamp+2.5, time.monotonic()+seconds+.03)
-        try:
-            completed = self.pulse('w', seconds, generation, stamp)
-        finally:
-            self.blind_until = 0.0
-        self.blind_spent += seconds
-        if completed:
-            self.advance_estimate(seconds)
-            previous_walk = self.pending_observation[3] if self.pending_observation else 0
-            self.pending_observation = (point, time.monotonic(), None, previous_walk+seconds)
-            self.publish(generation, status='Konum tahminiyle ilerliyor')
-        return completed
+        self.drive(generation, stamp)
+        self.publish(generation, status='Konum tahminiyle merkeze dönüyor')
+        return True
+
+    def missing_reading(self, generation):
+        # Do not erase an earlier trusted outside-Max reading on every OCR miss.
+        self.verified_count = 0
+        self.inside = 0
+        self.gate.set_position_blocked(self.config.enabled and self.engine.is_running)
+        self.publish(generation, status='Koordinat aranıyor')
+        self.continue_estimate(generation)
 
     def run(self):
         while not self.closed.is_set():
@@ -358,71 +364,65 @@ class PositionController:
             started = time.monotonic()
             with self.lock:
                 config, generation = self.config, self.generation
-            if self.center_requested and started-self._request_after > 8:
+            if self.center_requested and started-self._request_after > 12:
                 self.center_requested = False
                 self.publish(generation, center_error='Merkez kaydedilemedi; karakteri sabit tutup yeniden deneyin.')
             if not config.region:
-                self.wake.wait(0.5)
+                self.motion.halt()
+                self.wake.wait(.5)
                 continue
             if (config.display != screen_bounds() or
                     (config.monitors is not None and config.monitors != monitor_layout())):
+                self.motion.halt()
                 self.gate.set_position_blocked(config.enabled and self.engine.is_running)
                 self.publish(generation, status='Ekran değişti; konumu yeniden seçin')
-                self.wake.wait(0.5)
+                self.wake.wait(.5)
                 continue
             if self.gate.writer_pending():
+                self.motion.halt()
                 self.publish(generation, status='Yazının bitmesi bekleniyor')
-                self.wake.wait(0.05)
+                self.wake.wait(.05)
                 continue
             try:
                 if self.reader is None:
                     self.reader = self.reader_factory()
                     self.reader.start()
-                    # Helper startup time must not age the first capture.
-                    started = time.monotonic()
                 point = self.reader.read(config.region)
+                stamp = getattr(self.reader, 'capture_stamp', started)
                 if generation != self.generation:
                     continue
-                if self.center_requested and started <= self._request_after:
+                if self.center_requested and stamp <= self._request_after:
                     continue
-                # An OCR frame captured before writing ended must not update
-                # filtering, center candidates, or normal-input admission.
-                if started <= self.gate.position_epoch and config.enabled and self.engine.is_running:
+                if stamp <= self.gate.position_epoch and config.enabled and self.engine.is_running:
                     self.gate.set_position_blocked(True)
                     continue
-                accepted = self.filter.accept(point, started, moving=self.returning,
+                accepted = self.filter.accept(point, stamp, moving=self.motion.holding,
                                                expected_speed=self.steering.speed)
                 self.publish(generation, available=True)
-                if not accepted or time.monotonic()-started > 0.75:
-                    self.verified_count = 0
-                    self.outside = self.inside = 0
-                    self.gate.set_position_blocked(config.enabled and self.engine.is_running)
-                    self.publish(generation, status='Konum değişti, merkezi kontrol edin' if self.filter.outliers >= 3 else 'Koordinat okunamıyor')
-                    if self.filter.outliers >= 3:
-                        self.failure = 'Konum değişti, merkezi kontrol edin'
-                    self.continue_estimate(generation)
+                if not accepted or time.monotonic()-stamp > self.FRESH_SECONDS:
+                    self.missing_reading(generation)
                 else:
-                    self.publish(generation, point=point, stamp=started,
+                    self.publish(generation, point=point, stamp=stamp,
                                  distance=distance(point, config.center) if config.center else None)
-                    if self.center_requested and started > self._request_after and len(self.filter.stable) == 3:
+                    if self.center_requested and stamp > self._request_after and len(self.filter.stable) == 3:
                         self.center_requested = False
-                        self.publish(generation, center_candidate=point, center_stamp=started)
-                    self.gate.position_valid_until = started+0.75
-                    self.evaluate(point, started, generation)
+                        self.publish(generation, center_candidate=point, center_stamp=stamp)
+                    self.gate.position_valid_until = stamp+self.FRESH_SECONDS
+                    self.evaluate(point, stamp, generation)
             except Exception as error:
                 if self.closed.is_set():
                     break
                 LOGGER.exception('Koordinat okuyucu başarısız')
                 self.gate.set_position_blocked(config.enabled and self.engine.is_running)
                 self.publish(generation, available=False,
-                             status='Windows OCR kullanılamıyor; Windows OCR dilini kontrol edin',
-                             error=str(error))
-                self.wake.wait(5)
-            self.wake.wait(max(0.01, 0.25-(time.monotonic()-started)))
+                             status='Windows OCR kullanılamıyor; okuma yeniden deneniyor', error=str(error))
+                self.wake.wait(2)
+            self.wake.wait(max(.01, .25-(time.monotonic()-started)))
 
     def stop(self):
         self.closed.set()
         self.wake.set()
+        self.motion.stop()
         if self.reader is not None:
             self.reader.close()
         if self.thread is not None and self.thread is not threading.current_thread():
