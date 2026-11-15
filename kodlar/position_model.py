@@ -63,12 +63,9 @@ class PositionConfig:
 
 def parse_coordinates(text):
     # Do not invent missing decimal marks or pick two numbers out of a third.
-    matches = []
-    for line in str(text).replace(',', '.').splitlines():
-        match = re.fullmatch(r'\s*([+-]?\d{1,5}\.\d)\s+([+-]?\d{1,5}\.\d)\s*', line)
-        if match:
-            matches.append(tuple(map(float, match.groups())))
-    return matches[0] if len(matches) == 1 else None
+    match = re.fullmatch(r'\s*([+-]?\d{1,5}\.\d)\s+([+-]?\d{1,5}\.\d)\s*',
+                         str(text).replace(',', '.'))
+    return tuple(map(float, match.groups())) if match else None
 
 
 def distance(first, second):

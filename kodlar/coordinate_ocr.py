@@ -59,7 +59,16 @@ public static class CoordinateFrames {
    frames.Add(Encode(source, false, 4, false));
    frames.Add(Encode(source, false, 4, true));
    frames.Add(Encode(source, false, 8, true));
-   foreach(int threshold in new int[]{125,165,200})
+   using(Bitmap inverted = new Bitmap(w,h,PixelFormat.Format32bppArgb)) {
+    for(int py=0;py<h;py++) for(int px=0;px<w;px++) {
+     Color pixel=source.GetPixel(px,py);
+     int grey=(pixel.R*299+pixel.G*587+pixel.B*114)/1000;
+     inverted.SetPixel(px,py,Color.FromArgb(255-grey,255-grey,255-grey));
+    }
+    frames.Add(Encode(inverted, true, 4, true));
+    frames.Add(Encode(inverted, true, 6, true));
+   }
+   foreach(int threshold in new int[]{125,145,165,185})
    using (Bitmap mask = new Bitmap(w,h,PixelFormat.Format32bppArgb)) {
     Rectangle rect = new Rectangle(0,0,w,h);
     BitmapData src = source.LockBits(rect,ImageLockMode.ReadOnly,PixelFormat.Format32bppArgb);
@@ -74,6 +83,9 @@ public static class CoordinateFrames {
     BitmapData dst=mask.LockBits(rect,ImageLockMode.WriteOnly,PixelFormat.Format32bppArgb);
     try { Marshal.Copy(data,0,dst.Scan0,data.Length); } finally { mask.UnlockBits(dst); }
     frames.Add(Encode(mask, true, 4, true));
+    frames.Add(Encode(mask, true, 4, false));
+    frames.Add(Encode(mask, true, 6, true));
+    frames.Add(Encode(mask, true, 8, false));
    }
    return frames.ToArray();
   }
@@ -101,7 +113,10 @@ public static class CoordinateFrames {
    if ($r.Count -ne 4 -or $r[2] -lt 8 -or $r[2] -gt 640 -or $r[3] -lt 8 -or $r[3] -gt 180) { throw 'Invalid coordinate region' }
    $frames = [CoordinateFrames]::Make($r[0],$r[1],$r[2],$r[3],$request.image)
    $texts = @()
-   foreach ($frame in $frames) {
+   $indices = @(0..($frames.Length-1))
+   if ($request.preferred -and $request.preferred.Count -ge 2) { $indices = @($request.preferred) }
+   foreach ($index in $indices) {
+    $frame = $frames[$index]
     $stream = New-Object -TypeName Windows.Storage.Streams.InMemoryRandomAccessStream
     $writer = New-Object -TypeName Windows.Storage.Streams.DataWriter -ArgumentList $stream
     $bitmap = $null
@@ -119,7 +134,7 @@ public static class CoordinateFrames {
      $writer.Dispose(); $stream.Dispose()
     }
    }
-   [Console]::WriteLine((@{id=$request.id; texts=$texts} | ConvertTo-Json -Compress))
+   [Console]::WriteLine((@{id=$request.id; texts=$texts; indices=$indices} | ConvertTo-Json -Compress))
   } catch { [Console]::WriteLine((@{id=$request.id; error=$_.Exception.Message} | ConvertTo-Json -Compress)) }
  }
 } catch { [Console]::WriteLine((@{ready=$false; error=$_.Exception.Message} | ConvertTo-Json -Compress)) }
@@ -133,6 +148,7 @@ class CoordinateOCR:
         self.serial = 0
         self.lock = threading.Lock()
         self.last_texts = []
+        self.preferred = None
 
     def _receive(self, process, responses):
         try:
@@ -175,7 +191,8 @@ class CoordinateOCR:
         with self.lock:
             self.start()
             self.serial += 1
-            request = {'id': self.serial, 'region': region, 'image': image}
+            request = {'id': self.serial, 'region': region, 'image': image,
+                       'preferred': self.preferred}
             try:
                 self.process.stdin.write(json.dumps(request)+'\n')
                 self.process.stdin.flush()
@@ -188,10 +205,16 @@ class CoordinateOCR:
                 # A single plausible OCR result is not sufficient for movement.
                 # Independently prepared frames must agree on both decimals.
                 if not valid:
+                    self.preferred = None
                     return None
                 winner = max(set(valid), key=valid.count)
                 votes = valid.count(winner)
-                return winner if votes >= 2 and votes/len(valid) >= 2/3 else None
+                if votes >= 2 and votes/len(valid) >= 2/3:
+                    self.preferred = [index for index, point in zip(response['indices'], points)
+                                      if point == winner][:2]
+                    return winner
+                self.preferred = None
+                return None
             except Exception:
                 self.close()
                 raise
