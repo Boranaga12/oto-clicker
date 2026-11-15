@@ -94,9 +94,34 @@ public static class CoordinateFrames {
     frames.Add(Encode(mask, true, 8, false));
     frames.Add(Encode(mask, true, 4, true, 6));
     frames.Add(Encode(mask, true, 4, true, 8));
+    using(Bitmap pair=Separate(mask, false)) {
+     if(pair!=null) frames.Add(Encode(pair, true, 4, true));
+    }
+    using(Bitmap pair=Separate(mask, true)) {
+     if(pair!=null) frames.Add(Encode(pair, true, 4, true));
+    }
    }
    return frames.ToArray();
   }
+ }
+ static Bitmap Separate(Bitmap source, bool stacked) {
+  int best=0, split=0, run=0;
+  for(int x=source.Width/4;x<source.Width*3/4;x++) {
+   bool blank=true;
+   for(int y=0;y<source.Height;y++) if(source.GetPixel(x,y).R<128) {blank=false;break;}
+   run=blank ? run+1 : 0;
+   if(run>best) {best=run;split=x-run/2;}
+  }
+  if(best<2) return null;
+  Bitmap result=new Bitmap(stacked ? Math.Max(split,source.Width-split) : source.Width+24,
+                            stacked ? source.Height*2+12 : source.Height);
+  using(Graphics g=Graphics.FromImage(result)) {
+   g.Clear(Color.White);
+   g.DrawImage(source,new Rectangle(0,0,split,source.Height),new Rectangle(0,0,split,source.Height),GraphicsUnit.Pixel);
+   g.DrawImage(source,new Rectangle(stacked?0:split+24,stacked?source.Height+12:0,source.Width-split,source.Height),
+               new Rectangle(split,0,source.Width-split,source.Height),GraphicsUnit.Pixel);
+  }
+  return result;
  }
  static string Encode(Bitmap source, bool mask, int scale, bool smooth, int vertical=0) {
   if(vertical==0) vertical=scale;
