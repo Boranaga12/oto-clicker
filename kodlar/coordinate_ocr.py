@@ -94,6 +94,8 @@ public static class CoordinateFrames {
     frames.Add(Encode(mask, true, 8, false));
     frames.Add(Encode(mask, true, 4, true, 6));
     frames.Add(Encode(mask, true, 4, true, 8));
+    frames.Add(Encode(mask, true, 4, true, 4, true));
+    frames.Add(Encode(mask, true, 6, true, 6, true));
     using(Bitmap pair=Separate(mask, false)) {
      if(pair!=null) frames.Add(Encode(pair, true, 4, true));
     }
@@ -123,7 +125,7 @@ public static class CoordinateFrames {
   }
   return result;
  }
- static string Encode(Bitmap source, bool mask, int scale, bool smooth, int vertical=0) {
+ static string Encode(Bitmap source, bool mask, int scale, bool smooth, int vertical=0, bool reinforce=false) {
   if(vertical==0) vertical=scale;
   using(Bitmap scaled=new Bitmap(source.Width*scale+32,source.Height*vertical+32,PixelFormat.Format32bppArgb)) {
    using(Graphics g=Graphics.FromImage(scaled)) {
@@ -131,6 +133,25 @@ public static class CoordinateFrames {
     g.InterpolationMode=smooth ? InterpolationMode.HighQualityBicubic : InterpolationMode.NearestNeighbor;
     g.PixelOffsetMode=PixelOffsetMode.Half;
     g.DrawImage(source,new Rectangle(16,16,source.Width*scale,source.Height*vertical));
+   }
+   if(reinforce) {
+    // One enlarged pixel is at most a quarter of an original pixel.
+    // Preserve decimal dots without eroding or closing original glyph holes.
+    int width=scaled.Width, height=scaled.Height;
+    BitmapData bits=scaled.LockBits(new Rectangle(0,0,width,height),ImageLockMode.ReadWrite,PixelFormat.Format32bppArgb);
+    byte[] original=new byte[width*height*4];
+    try {
+     Marshal.Copy(bits.Scan0,original,0,original.Length);
+     byte[] enhanced=(byte[])original.Clone();
+     for(int y=1;y<height-1;y++) for(int x=1;x<width-1;x++) {
+      int at=(y*width+x)*4;
+      byte value=original[at];
+      for(int dy=-1;dy<=1;dy++) for(int dx=-1;dx<=1;dx++)
+       value=Math.Min(value,original[((y+dy)*width+x+dx)*4]);
+      enhanced[at]=enhanced[at+1]=enhanced[at+2]=value;
+     }
+     Marshal.Copy(enhanced,0,bits.Scan0,enhanced.Length);
+    } finally { scaled.UnlockBits(bits); }
    }
    using(MemoryStream stream=new MemoryStream()) {
     scaled.Save(stream,ImageFormat.Png); return Convert.ToBase64String(stream.ToArray());
