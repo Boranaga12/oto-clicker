@@ -1040,6 +1040,7 @@ class ClickerApp:
             if button_widget:
                 button_widget.configure(text=key_name.upper(), bg=self.input_bg, fg=self.text_primary)
             self.clicker.log(f"Sistem başlatma/durdurma kısayolu değiştirildi: {key_name.upper()}")
+            self.refresh_keys_list_ui()
             
         elif target_type == "key" and config:
             config.key = key_name
@@ -2182,7 +2183,7 @@ class ClickerApp:
                 lock_widget(child)
 
         list_frame = self._current_view["frame"] if self._current_view else self.list_container.scrollable_frame
-        for container in (self.profile_frame, self.list_header, list_frame, self.chk_topmost):
+        for container in (self.profile_frame, self.list_header, list_frame, self.chk_topmost, self.panic_btn):
             lock_widget(container)
 
     def update_running_ui(self, active: bool):

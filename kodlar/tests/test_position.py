@@ -26,6 +26,7 @@ class PositionModelTests(unittest.TestCase):
         self.assertEqual(parse_coordinates('69.0 87.1'), (69.0, 87.1))
         self.assertEqual(parse_coordinates('71.9 / 57.2'), (71.9, 57.2))
         self.assertEqual(parse_coordinates('71.9/57.2'), (71.9, 57.2))
+        self.assertEqual(parse_coordinates('71 .9 57.2'), (71.9, 57.2))
         for text in ('676 77.5', '67.6', '67.6 77.5 10.0', '67.6 77.5\n10.0', '67.6 77.5\n69.0 87.1'):
             self.assertIsNone(parse_coordinates(text))
 
