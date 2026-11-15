@@ -48,6 +48,10 @@ using System.IO;
 using System.Runtime.InteropServices;
 using System.Collections.Generic;
 public static class CoordinateFrames {
+ [DllImport("user32.dll")] static extern bool SetProcessDpiAwarenessContext(IntPtr context);
+ static CoordinateFrames() {
+  try { SetProcessDpiAwarenessContext(new IntPtr(-4)); } catch(EntryPointNotFoundException) { }
+ }
  public static string[] Make(int x, int y, int w, int h, string image) {
   using (Bitmap source = new Bitmap(w,h,PixelFormat.Format32bppArgb)) {
    using (Graphics g = Graphics.FromImage(source)) {

@@ -279,6 +279,10 @@ class PositionPanel(tk.Frame):
                     self.error_label.configure(text=state['center_error'])
                 if self.pending_center and state.get('available') is False:
                     self.pending_center = False
+                if (self.pending_center and candidate and
+                        time.monotonic()-state.get('center_stamp', 0) > .75):
+                    self.pending_center = False
+                    self.error_label.configure(text='Ölçüm güncelliğini yitirdi; merkezi yeniden alın.')
                 if (self.pending_center and candidate and not running
                         and time.monotonic()-state.get('center_stamp', 0) <= .75):
                     self.pending_center = False
