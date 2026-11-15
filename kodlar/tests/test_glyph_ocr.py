@@ -120,5 +120,21 @@ class ObstacleEvidenceTests(unittest.TestCase):
         self.assertTrue(results[-1])
         self.assertEqual(watch.begin_escape((10, 0), 5), 'a')
         self.assertTrue(watch.escaping((10.1, 0), 6))
-        self.assertFalse(watch.escaping((11.1, 0), 6.5))
+        self.assertTrue(watch.escaping((11.1, 0), 6.5))
+        self.assertTrue(watch.escaping((11.1, 0), 60))
+        while watch.route:
+            watch.escape_target(watch.route[0], 61)
+        self.assertIsNone(watch.escape_origin)
         self.assertEqual(watch.begin_escape((11.1, 0), 10), 'd')
+
+    def test_wide_curve_retreats_and_clears_the_side_before_rejoining(self):
+        watch = ObstacleWatch()
+        watch.begin_escape((12, 0), 1, (0, 0), speed=2)
+        route = list(watch.route)
+        self.assertGreater(route[0][0], 17)
+        self.assertGreater(max(abs(y) for _, y in route), 8)
+        self.assertLess(route[-1][0], 12)
+        first_radius = watch.radius
+        watch.begin_escape((12, 0), 10, (0, 0), speed=2)
+        self.assertGreater(watch.radius, first_radius)
+        self.assertGreater(watch.route[0][1], 0)

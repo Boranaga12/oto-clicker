@@ -49,9 +49,11 @@ Karakter dururken **Anlık Konumu Al** ile üç tutarlı okumadan merkez kaydedi
 `0 ≤ Min < Maks` olacak şekilde mesafeleri ayarlayıp kartı etkinleştirin.
 Güvenilir ölçümde Maks aşılırsa merkeze dönüş kilitlenir; W sürekli basılı
 tutulurken A/D ile yön düzeltilerek Min mesafesine dönülür. Kısa OCR hataları
-bu iki ölçümün doğrulamasını sıfırlamaz. İlerleme durursa önce bir yana dönülür,
-biraz ilerlenir, sonra yeniden merkez hedeflenir; sonraki denemede diğer yan
-denenir. Bu, koordinat geri bildirimli kaçınmadır; haritadan rota çıkarmaz.
+bu iki ölçümün doğrulamasını sıfırlamaz. İlerleme durursa karakter
+önce engelden geriye doğru açılır, sonra geniş bir eğri üzerindeki ara hedefleri
+izleyerek yandan merkeze yaklaşır. Kaçınma bir birim ilerlemekle veya birkaç saniye
+geçmesiyle bitmez. Yeniden takılma doğrulanırsa karşı taraf daha geniş denenir.
+Bu, koordinat geri bildirimli kaçınmadır; haritadan rota çıkarmaz.
 Okuma kaybı, tur süresi veya kaçınma sayısı dönüş kilidini kaldırmaz. Gerçek ve
 güncel bir ölçüm Min'in altında olduğunda W bırakılır. Min sıfırsa tam merkez
 ölçümü gerekir. Yazı, odak kaybı ve Durdur yine tuşları bırakır.
@@ -187,8 +189,11 @@ taşınan kartın beklemeleri korunur. Yazı bölümü, açılış kartından b�
 başka gruba taşınır; tek bir gövde/kapanış kartı dışarı çıkarılarak bölünmez.
 Çalışan makrolarda ve pasif gruplarda taşıma kapalıdır. Esc taşımayı iptal eder.
 
-Kayıt panelinde Hazır, başlat/durdur ve hata gibi önemli mesajlar gösterilir.
-Tekrarlanan tuş/tıklama ve yazı işlem ayrıntıları yalnızca dosya günlüğüne yazılır.
+Kayıt panelinde sistemin başlat/durdur mesajı bir kez gösterilir. Gönderilen her
+tuş/tıklama kayda yazılır; gruplarda `Grup adı · TUŞ` biçimi kullanılır. İzleme
+nedeniyle atlanan adımlar basılmış gibi gösterilmez. Gerçek tuş basışında kartın
+çerçevesi ve renk şeridi kısa ve hafif bir parlama yapar; durdurma ve profil
+değişiminde renkler geri yüklenir. Yazı işlem ayrıntıları dosya günlüğünde kalır.
 
 `main` dalına gönderilen değişiklikler GitHub Actions ile uygulamanın kayıtlı
 sürüm numarasıyla yayımlanır. İndirilecek dosya Releases içindeki `arik-makro.zip`tir.

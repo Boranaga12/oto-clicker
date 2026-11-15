@@ -47,6 +47,7 @@ from .sequences import migrate_group_timing
 from .magnifier import SelectionMagnifier
 from .position_model import PositionConfig
 from .position_ui import PositionPanel
+from .card_activity import CardActivity
 
 
 PIXEL_PICK_OFFSET = 8
@@ -143,6 +144,8 @@ class ClickerApp:
         self.load_active_profile_configs()
         
         self.log_queue = queue.Queue()
+        self.card_activity = CardActivity(self.root)
+        self.clicker.input_callback = self.on_macro_input
         self.clicker.log_callback = self.enqueue_log
         self.clicker.state_callback = self.on_state_changed
         self.clicker.refresh_callback = self.enqueue_refresh
@@ -430,6 +433,7 @@ class ClickerApp:
 
     def shutdown(self) -> None:
         self._shutting_down = True
+        self.card_activity.clear()
         if self._update_monitor is not None:
             self._update_monitor.stop()
         self.position_panel.dispose()
@@ -447,6 +451,7 @@ class ClickerApp:
             self.save_current_configs_to_profiles(update_workers=False)
         self.clicker.capturing_callback = None
         self.clicker.log_callback = None
+        self.clicker.input_callback = None
         self.clicker.state_callback = None
         self.clicker.refresh_callback = None
         self.clicker.persist_callback = None
@@ -609,6 +614,9 @@ class ClickerApp:
     def enqueue_log(self, msg: str):
         self.log_queue.put(("log", msg))
         
+    def on_macro_input(self, profile, macro_id):
+        self.log_queue.put(('input_sent', (profile, macro_id)))
+
     def on_state_changed(self, active: bool):
         self.log_queue.put(("state", active))
 
@@ -662,6 +670,13 @@ class ClickerApp:
                     self.append_log_to_widget('Güncelleme kontrolü tamamlanamadı: '+str(data))
                 elif msg_type == "log":
                     self.append_log_to_widget(data)
+                elif msg_type == 'input_sent':
+                    profile, macro_id = data
+                    if profile == self.active_profile and self.clicker.is_running:
+                        config = self._find_config(macro_id)
+                        widgets = self.config_widgets.get(id(config))
+                        if widgets is not None:
+                            self.card_activity.pulse(widgets)
                 elif msg_type == "state":
                     self.update_running_ui(data)
                 elif msg_type == "refresh":
@@ -1660,6 +1675,7 @@ class ClickerApp:
             current.insert(index, widget)
 
     def refresh_keys_list_ui(self):
+        self.card_activity.clear()
         if hasattr(self, 'position_panel'):
             self.position_panel.set_profile(self.active_profile, self.position_config)
         self.finish_group_drag(None)
@@ -2392,6 +2408,8 @@ class ClickerApp:
             lock_widget(container)
 
     def update_running_ui(self, active: bool):
+        if not active:
+            self.card_activity.clear()
         self.set_editing_locked(active)
         self.draw_markers()
         if active:

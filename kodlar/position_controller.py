@@ -5,6 +5,7 @@ import logging
 import math
 import threading
 import time
+from dataclasses import replace
 
 from .coordinate_ocr import CoordinateOCR, ocr_error_message
 from .platform_win import foreground_window, foreground_is_ours, screen_bounds, window_at_point, monitor_layout
@@ -354,20 +355,30 @@ class PositionController:
             self.publish(generation, status='Merkeze ulaşıldı')
             return
         self.inside = 0
-        if self.obstacles.escaping(point, stamp):
-            self.drive(generation, stamp)
-            self.publish(generation, status='Engelin çevresinden yürüyor')
-            return
         if self.obstacles.stalled(point, stamp, walking=self.motion.holding, turning=self.motion.turning):
-            direction = self.obstacles.begin_escape(point, stamp)
+            direction = self.obstacles.begin_escape(point, stamp, config.center, self.steering.speed)
             rate = abs(self.steering.a_rate) if self.steering.a_rate else 2.2
-            turn = (direction, min(.65, max(.15, (math.pi/4)/rate)))
+            turn = (direction, min(1.1, max(.5, (math.pi*.8)/rate)))
+            if self.steering.heading is not None and self.steering.a_rate is not None:
+                goal = self.obstacles.route[0]
+                error = signed_angle(math.atan2(goal[1]-point[1], goal[0]-point[0])-self.steering.heading)
+                turn = ('a' if error*self.steering.a_rate > 0 else 'd',
+                        min(1.1, max(.5, abs(error/self.steering.a_rate))))
             self.last_turn = turn
             self.steering.stationary = 0
-            if self.steering.heading is not None and self.steering.a_rate is not None:
-                self.steering.heading += self.steering.a_rate*turn[1]*(1 if direction == 'a' else -1)
             self.drive(generation, stamp, turn)
-            self.publish(generation, status='Engel için sola sapıyor' if turn[0] == 'a' else 'Engel için sağa sapıyor')
+            self.publish(generation, status='Engelden uzaklaşıp geniş yay çiziyor')
+            return
+        waypoint = self.obstacles.escape_target(point, stamp)
+        if waypoint is not None:
+            turn = None
+            if not self.motion.turning:
+                turn = self.steering.correction(point, replace(config, center=waypoint))
+                if turn is not None:
+                    self.last_turn = turn
+                    self.obstacles.reset_evidence(stamp+1.0)
+            self.drive(generation, stamp, turn)
+            self.publish(generation, status='Engelin çevresinden geniş yayla yürüyor')
             return
         turn = None
         if not self.motion.turning and self.steering.stationary < 2:

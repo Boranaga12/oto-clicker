@@ -233,10 +233,11 @@ class PositionPriorityTests(unittest.TestCase):
                 controller.evaluate((12, 0), clock[0], 1)
                 clock[0] += .25
             turns = [call.args[-1] for call in controller.motion.drive.call_args_list if call.args[-1] is not None]
-            self.assertEqual(len(turns), 1)
+            self.assertGreaterEqual(len(turns), 1)
             self.assertEqual(turns[0][0], 'a')
+            self.assertGreater(turns[0][1], .65)
             controller.evaluate((10.9, 0), clock[0], 1)
-            self.assertIsNone(controller.obstacles.escape_origin)
+            self.assertIsNotNone(controller.obstacles.escape_origin)
         self.assertIsNone(controller.failure)
 
     def test_missing_frame_does_not_erase_outside_max_confirmation(self):

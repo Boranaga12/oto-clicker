@@ -1,15 +1,22 @@
 """Curated notes bundled with the matching application release."""
 
 CURRENT_NOTES = (
+    'Engelden kaçınma geriye açılıp geniş bir yan yay üzerinden merkeze dönen ara hedeflerle yenilendi; erken merkeze yönelme kaldırıldı.',
+    'Yeni bir takılma doğrulanırsa karşı taraftan daha geniş kaçınma denenir; W ve yazı öncelikleri korunur.',
+    'Tekrarlanan Makro başlatıldı/durduruldu kayıtları kaldırıldı; sistemin durum mesajı tek kez gösterilir.',
+    'Gönderilen her tuş ve tıklama anında kayda yazılır; gruplarda grup adı ve tuş birlikte gösterilir.',
+    'Gerçek basışlarda ilgili kartın çerçevesi ve renk şeridi hafifçe parlar; animasyonlar tek zamanlayıcıyla yönetilir.',
+)
+
+HISTORY = (
+    ("2.7.0", (
     'Kayıtlardaki başlangıç yönergesi ve tekrarlanan tuş, tıklama ve yazı işlem mesajları sadeleştirildi; hatalar gösterilmeye devam eder.',
     'Otomatik yürüyüş W/A/D girdileri oyunların okuyabildiği fiziksel tarama kodlarına geçirildi; W dönüş boyunca basılı tutulur.',
     'Profil menüsüne Profili kopyala eklendi; tuşlar, gruplar, yazı bölümleri ve konum ayarları yeni isimle bağımsız kaydedilir.',
     'Profil adlarında Türkçe büyük/küçük harf farkıyla aynı isimde ikinci kayıt oluşturulması önlendi.',
     'Bağımsız tuşlara sürükleme eklendi; tuşlar sıralanabilir, gruba taşınabilir ve Grup dışı tuşlar alanına çıkarılabilir.',
     'Gruplar arasında taşıma bekleme ayarlarını korur; yazı bölümleri açılış kartından bütün olarak başka gruba taşınır.',
-)
-
-HISTORY = (
+    )),
     ("2.6.0", (
     'Uygulama açıkken dakikada bir güncelleme kontrol edilir; yeni sürüm bulunduğunda üstte büyük GÜNCELLEME VAR düğmesi görünür.',
     'Yeni sürüm arka planda indirilip doğrulanır; kurulum düğmeye basılana kadar bekler.',

@@ -54,6 +54,8 @@ class EngineContext(Protocol):
 
     def log_activity(self, token: str, message: str) -> None: ...
 
+    def macro_input_sent(self, config: KeyConfig) -> None: ...
+
     def extend_mute(self, duration: float) -> None: ...
 
     def mark_injected_key(self, key_name: str) -> None: ...
@@ -155,6 +157,7 @@ class KeyClickerWorker(StoppableWorker):
                             self.clicker.mark_injected_mouse(mouse_button)
                             self.clicker.mouse.press(mouse_button)
                             try:
+                                self.clicker.macro_input_sent(self.config)
                                 self.wait(random.uniform(0.10, 0.14) if grouped else random.uniform(0.06, 0.08))
                             finally:
                                 self.clicker.mouse.release(mouse_button)
@@ -167,15 +170,12 @@ class KeyClickerWorker(StoppableWorker):
                         self.clicker.mark_injected_mouse(mouse_button)
                         self.clicker.mouse.press(mouse_button)
                         try:
+                            self.clicker.macro_input_sent(self.config)
                             self.wait(random.uniform(0.10, 0.14) if grouped else random.uniform(0.06, 0.08))
                         finally:
                             self.clicker.mouse.release(mouse_button)
                         if grouped:
                             self.wait(.08)
-                    self.clicker.log_activity(
-                        self.config.id_token,
-                        f"Tıklama: {self.config.key.upper()}",
-                    )
                     return True
 
                 if hasattr(keyboard.Key, key_name):
@@ -188,6 +188,7 @@ class KeyClickerWorker(StoppableWorker):
                 self.clicker.mark_injected_key(key_name)
                 self.keyboard_controller.press(key)
                 try:
+                    self.clicker.macro_input_sent(self.config)
                     self.wait(random.uniform(0.02, 0.05))
                 finally:
                     self.keyboard_controller.release(key)
@@ -196,10 +197,6 @@ class KeyClickerWorker(StoppableWorker):
                 callback = getattr(self.clicker, 'macro_key_sent', None)
                 if callback is not None:
                     callback(self.config)
-            self.clicker.log_activity(
-                self.config.id_token,
-                f"Tuş: {self.config.key.upper()}",
-            )
             return True
         except Exception as exc:
             self.last_press_error = exc

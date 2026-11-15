@@ -197,6 +197,25 @@ class EngineTests(unittest.TestCase):
             self.engine.log_activity("macro", "ikinci")
         log.assert_called_once_with("ilk")
 
+    def test_every_sent_group_key_is_logged_and_published_without_throttling(self):
+        config = KeyConfig('f1', 1, 0)
+        self.engine.key_configs = [config]
+        self.engine.sequence_groups = [SequenceGroup(name='Saldırı', children=[SequenceItem('macro', macro_id=config.id_token)])]
+        self.engine.position_controller.profile = 'Karos'
+        self.engine.input_callback = Mock()
+        with patch.object(self.engine, 'log') as log:
+            self.engine.macro_input_sent(config)
+            self.engine.macro_input_sent(config)
+        self.assertEqual(log.call_args_list, [unittest.mock.call('Saldırı · F1')]*2)
+        self.assertEqual(self.engine.input_callback.call_args_list, [unittest.mock.call('Karos', config.id_token)]*2)
+
+    def test_state_change_logs_only_its_reason(self):
+        with patch.object(self.engine, 'log') as log:
+            self.engine._publish_state(True, 'Sistem aktif edildi.')
+            self.engine._publish_state(False, 'Sistem durduruldu.')
+        self.assertEqual(log.call_args_list, [unittest.mock.call('Sistem aktif edildi.'),
+                                              unittest.mock.call('Sistem durduruldu.')])
+
     def test_injected_panic_key_does_not_toggle_engine(self) -> None:
         self.engine.mark_injected_key("esc")
         self.engine.on_key_press(keyboard.Key.esc)

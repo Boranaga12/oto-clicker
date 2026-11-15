@@ -94,6 +94,7 @@ class RandomizedAutoClicker:
         self.pixel_capture_cancel_callback: SimpleCallback | None = None
         self._pixel_capture_down: tuple[int, int] | None = None
         self.sequence_state_callback: SequenceStateCallback | None = None
+        self.input_callback = None
         self.sequence_runner = SequenceRunner(
             execute_macro=self.execute_group_step,
             macro_delay=self.macro_delay,
@@ -176,13 +177,9 @@ class RandomizedAutoClicker:
             if now - previous < minimum_interval:
                 return
             self._activity_log_times[token] = now
-        if message.startswith(('Tuş:', 'Tıklama:')):
-            LOGGER.info(message)
-        else:
-            self.log(message)
+        self.log(message)
 
     def _publish_state(self, active: bool, reason: str | None = None) -> None:
-        self.log("Makro başlatıldı." if active else "Makro durduruldu.")
         if reason:
             self.log(reason)
         if self.state_callback:
@@ -320,6 +317,16 @@ class RandomizedAutoClicker:
 
     def is_toggle_macro(self, config):
         return config.key.strip().lower() == self.app_config.panic_key.strip().lower()
+
+    def macro_input_sent(self, config):
+        if not any(item is config for item in self.key_configs):
+            return
+        group = next((group for group in self.sequence_groups
+                      if any(item.macro_id == config.id_token for item in group.children)), None)
+        self.log(f'{group.name} · {config.key.upper()}' if group else f'Tuş: {config.key.upper()}')
+        callback = self.input_callback
+        if callback is not None:
+            callback(self.position_controller.profile, config.id_token)
 
     def macro_key_sent(self, config):
         self.tab_watchdog.record(config)

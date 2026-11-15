@@ -26,6 +26,7 @@ class WorkerTests(unittest.TestCase):
         engine.mouse.release.assert_called_once_with(Button.left)
         self.assertEqual(pixels.get.call_count, 1)
         self.assertEqual(engine.mouse.position, (10, 20))
+        engine.macro_input_sent.assert_called_once_with(worker.config)
         self.assertIn(unittest.mock.call(.08), worker.wait.call_args_list)
 
     def test_group_cancel_during_cursor_settle_never_presses_the_button(self):
@@ -35,6 +36,7 @@ class WorkerTests(unittest.TestCase):
         worker.wait = lambda _seconds: cancel.set() or False
         self.assertEqual(worker.press_once(cancel), StepResult.CANCELLED)
         engine.mouse.press.assert_not_called()
+        engine.macro_input_sent.assert_not_called()
 
     def worker(self, **settings):
         config = KeyConfig('sol klik', 0, 0, **settings)
