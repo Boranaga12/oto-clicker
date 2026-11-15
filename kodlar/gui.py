@@ -6,6 +6,7 @@ import math
 from collections import deque, OrderedDict
 from functools import wraps
 from dataclasses import fields
+from copy import deepcopy
 import os
 from pathlib import Path
 import time
@@ -31,7 +32,7 @@ from .platform_win import flush_desktop, get_pixel_color_win32, screen_bounds, f
 from .profile_store import load_profiles, save_profiles
 from .sequences import (
     SequenceGroup,
-    WritingBlock, writing_layout, move_group_item,
+    WritingBlock, writing_layout, move_group_item, transfer_macro,
     flatten_groups,
     SequenceItem,
     group_macro_ids,
@@ -253,6 +254,7 @@ class ClickerApp:
         actions = tk.Menu(profile_actions, tearoff=False, bg=self.card_color,
                           fg=self.text_primary, activebackground=self.accent_color)
         actions.add_command(label="Yeni profil", command=self.create_profile)
+        actions.add_command(label="Profili kopyala", command=self.copy_profile)
         actions.add_command(label="İsmi değiştir", command=self.rename_profile)
         actions.add_command(label="Profili sil", command=self.delete_profile)
         profile_actions.configure(menu=actions)
@@ -959,8 +961,9 @@ class ClickerApp:
             self.refresh_keys_list_ui()
 
     @editable_only
-    def create_profile(self):
-        name = simpledialog.askstring("Yeni Profil", "Profil ismini girin:", parent=self.root)
+    def create_profile(self, copy_current=False):
+        name = simpledialog.askstring("Profili Kopyala" if copy_current else "Yeni Profil",
+                                      "Profil ismini girin:", parent=self.root)
         if name and not self.clicker.is_running:
             name = name.strip()
             duplicate = next(
@@ -974,22 +977,29 @@ class ClickerApp:
             if len(name) > 40:
                 messagebox.showerror("Hata", "Profil ismi en fazla 40 karakter olabilir.")
             elif name and duplicate is None:
+                self.finish_group_drag(None)
                 self.cancel_pixel_pick()
-                self.profiles_data["profiles"][name] = []
-                self.profiles_data.setdefault("groups", {})[name] = []
+                self.root.focus_set()
+                self.save_current_configs_to_profiles(update_workers=False)
+                for section in ('profiles', 'groups', 'positions'):
+                    values = self.profiles_data.setdefault(section, {})
+                    empty = {} if section == 'positions' else []
+                    values[name] = deepcopy(values.get(self.active_profile, empty)) if copy_current else empty
                 
                 self.active_profile = name
                 self.profiles_data["active_profile"] = name
                 self.save_profile_document()
                 
-                self.key_configs = []
-                self.sequence_groups = []
-                self.position_config = PositionConfig()
-                self.clicker.configure([], sequence_groups=[])
+                self.load_active_profile_configs()
+                self.clicker.configure(self.key_configs, sequence_groups=self.sequence_groups)
                 self.refresh_profile_combobox()
                 self.refresh_keys_list_ui()
             elif duplicate is not None:
                 messagebox.showerror("Hata", "Bu isimde bir profil zaten mevcut.")
+
+    @editable_only
+    def copy_profile(self):
+        self.create_profile(copy_current=True)
 
     @editable_only
     def rename_profile(self):
@@ -1315,7 +1325,7 @@ class ClickerApp:
         self.move_group_key(group, macro_id, target)
 
     def start_group_drag(self, event, group, macro_id):
-        if self.clicker.is_running or not group.enabled:
+        if self.clicker.is_running or (group is not None and not group.enabled):
             return
         self.finish_group_drag(None)
         self._group_drag = (group, macro_id)
@@ -1336,7 +1346,7 @@ class ClickerApp:
         from .platform_win import make_overlay_passive
         group, macro_id = self._group_drag
         config = self._find_config(macro_id)
-        roles, _ = writing_layout(group)
+        roles, _ = writing_layout(group) if group is not None else ({}, [])
         role, _block = roles.get(macro_id, (None, None))
         label = "Yazı bölümü" if role == "open" else "Tuş kartı"
         window = tk.Toplevel(self.root)
@@ -1350,13 +1360,13 @@ class ClickerApp:
         tk.Label(body, text=f"⠿  {config.key.upper() if config else 'Tuş'}",
                  bg=self.card_color, fg=self.text_primary,
                  font=("Segoe UI", 10, "bold")).pack(anchor="w")
-        tk.Label(body, text=f"{label} · Bırakarak sırala", bg=self.card_color,
-                 fg=self.text_secondary, font=("Segoe UI", 8)).pack(anchor="w")
+        self._group_drag_caption = tk.Label(body, text=f"{label} · Bırakarak sırala", bg=self.card_color,
+                                            fg=self.text_secondary, font=("Segoe UI", 8))
+        self._group_drag_caption.pack(anchor='w')
         window.update_idletasks()
         self._group_drag_preview_handle = make_overlay_passive(window.winfo_id())
         self._group_drag_preview = window
-        source = next((card for key, card in self._group_cards.get(group.id_token, [])
-                       if key == macro_id), None)
+        source = self.config_widgets.get(id(config), {}).get('card')
         if source is not None:
             placeholder = tk.Frame(source, bg=self.bg_color, highlightthickness=2,
                                    highlightbackground=self.accent_color)
@@ -1389,14 +1399,22 @@ class ClickerApp:
             from .platform_win import move_overlay
             move_overlay(self._group_drag_preview_handle, x, y, width, height)
         self._group_drag_pointer = event.y_root
+        self._group_drag_pointer_x = event.x_root
         self._paint_group_drop()
         if not getattr(self, "_group_drag_job", None):
             self._group_drag_job = self.root.after(40, self._scroll_group_drag)
 
     def _paint_group_drop(self):
-        group, _macro_id = self._group_drag
-        cards = self._group_cards.get(group.id_token, [])
         y = self._group_drag_pointer
+        x = self._group_drag_pointer_x
+        destination = None
+        for group in self.sequence_groups:
+            outer = self.group_widgets[group.id_token]['outer']
+            if (outer.winfo_rootx() <= x < outer.winfo_rootx()+outer.winfo_width()
+                    and outer.winfo_rooty() <= y < outer.winfo_rooty()+outer.winfo_height()):
+                destination = group
+                break
+        cards = self._group_cards.get(destination.id_token, []) if destination else self._root_cards
         target = len(cards)
         boundary = cards[-1][1].winfo_rooty()+cards[-1][1].winfo_height() if cards else y
         for index, (_key, card) in enumerate(cards):
@@ -1404,6 +1422,16 @@ class ClickerApp:
                 target, boundary = index, card.winfo_rooty()
                 break
         self._group_drag_target = target
+        self._group_drag_destination = destination
+        source, macro_id = self._group_drag
+        roles, _ = writing_layout(source) if source is not None else ({}, [])
+        whole_writing = roles.get(macro_id, (None, None))[0] == 'open'
+        invalid = (destination is not None and not destination.enabled) or (whole_writing and destination is None)
+        caption = ('Grup pasif; taşınamaz' if destination is not None and not destination.enabled else
+                   'Yazı bölümünü başka gruba bırakın' if invalid else
+                   f'→ {destination.name}' if destination else '→ Grup dışı tuşlar')
+        self._group_drag_caption.configure(text=caption, fg=self.danger_color if invalid else self.text_secondary)
+        self._group_drop_line.configure(bg=self.danger_color if invalid else self.accent_color)
         canvas = self.list_container.canvas
         self._group_drop_line.place(x=4, y=max(0, min(canvas.winfo_height()-2, boundary-canvas.winfo_rooty())), width=max(1, canvas.winfo_width()-8))
 
@@ -1453,7 +1481,16 @@ class ClickerApp:
             canvas = self.list_container.canvas
             if (canvas.winfo_rootx() <= event.x_root < canvas.winfo_rootx()+canvas.winfo_width()
                     and canvas.winfo_rooty() <= event.y_root < canvas.winfo_rooty()+canvas.winfo_height()):
-                self.move_group_key(group, macro_id, self._group_drag_target)
+                self.move_macro_card(macro_id, self._group_drag_destination, self._group_drag_target)
+
+    @editable_only
+    def move_macro_card(self, macro_id, destination, target):
+        if transfer_macro(self.key_configs, self.sequence_groups, macro_id, destination, target):
+            view = self.list_container.canvas.yview()[0]
+            self.save_current_configs_to_profiles(update_workers=False, update_sequences=True)
+            self.refresh_keys_list_ui()
+            self.list_container.canvas.update_idletasks()
+            self.list_container.canvas.yview_moveto(view)
 
     def draw_sequence_group(
         self,
@@ -1696,9 +1733,16 @@ class ClickerApp:
             self._group_cards[group.id_token] = [(item.macro_id, view["configs"][item.macro_id]["card"])
                 for item in group.children if item.macro_id in view["configs"]]
             roots.append(widgets["outer"])
+        self._root_cards = []
+        if 'root_drop' not in view:
+            view['root_drop'] = tk.Label(view['frame'], text='Grup dışı tuşlar · Buraya sürükleyin',
+                bg=self.bg_color, fg=self.text_secondary, font=('Segoe UI', 8), pady=8)
+        roots.append(view['root_drop'])
         for config in self.key_configs:
             if config.id_token not in parents:
-                roots.append(self.reconcile_card(view, config, None, view["frame"], {}))
+                card = self.reconcile_card(view, config, None, view["frame"], {})
+                roots.append(card)
+                self._root_cards.append((config.id_token, card))
         self.arrange_cards(view["frame"], roots)
         self.update_group_states()
         self.draw_markers()
@@ -1787,9 +1831,9 @@ class ClickerApp:
         order.pack(anchor="n", pady=(0, 5))
         handle = tk.Label(order, text="⠿", bg=self.card_color, fg=self.text_secondary,
                           cursor="fleur", font=("Segoe UI", 10))
+        handle.pack(side='left')
         arrows = []
         if group is not None:
-            handle.pack(side="left")
             for label, direction in (("↑", -1), ("↓", 1)):
                 arrow = tk.Button(order, text=label, bd=0, highlightthickness=0, bg=self.input_bg,
                     fg=self.text_secondary, activebackground=self.border_color,
@@ -1797,8 +1841,6 @@ class ClickerApp:
                     command=lambda g=group, k=config.id_token, d=direction: self.step_group_key(g, k, d))
                 arrow.pack(side="left")
                 arrows.append(arrow)
-        else:
-            order.pack_forget()
         delete = tk.Button(rail, text="Sil", bg="#382936", fg="#f2a5b2", bd=0, highlightthickness=0,
             activebackground=self.danger_color, activeforeground="white",
             font=("Segoe UI", 8, "bold"), padx=10, pady=4,
@@ -1952,15 +1994,15 @@ class ClickerApp:
             check = widgets["writing_check"]
             check.configure(text=label, state="disabled" if role == "body" else "normal")
             check.var.set(int(role is not None))
-            handle = widgets["handle"]
-            for binding in ("<ButtonPress-1>", "<B1-Motion>", "<ButtonRelease-1>"):
-                handle.unbind(binding)
-            if not blocked:
-                handle.bind("<ButtonPress-1>", lambda e, g=group, k=config.id_token: self.start_group_drag(e, g, k))
-                handle.bind("<B1-Motion>", self.drag_group_key)
-                handle.bind("<ButtonRelease-1>", self.finish_group_drag)
             for arrow in widgets["arrows"]:
                 arrow.configure(state="disabled" if blocked else "normal")
+        handle = widgets['handle']
+        for binding in ('<ButtonPress-1>', '<B1-Motion>', '<ButtonRelease-1>'):
+            handle.unbind(binding)
+        if not blocked and (group is None or group.enabled):
+            handle.bind('<ButtonPress-1>', lambda e, g=group, k=config.id_token: self.start_group_drag(e, g, k))
+            handle.bind('<B1-Motion>', self.drag_group_key)
+            handle.bind('<ButtonRelease-1>', self.finish_group_drag)
         # Restore only states set by the group lock, preserving automatic body locks.
         locked = group is not None and not group.enabled
         if getattr(widgets["card"], "_group_locked", False) and not locked:

@@ -221,6 +221,60 @@ def writing_layout(group: SequenceGroup):
     return roles, errors
 
 
+def transfer_macro(configs, groups, macro_id, destination, target):
+    """Move a card between containers without breaking complete chat sections."""
+    config = next((c for c in configs if c.id_token == macro_id), None)
+    source = next((g for g in groups if any(i.macro_id == macro_id for i in g.children)), None)
+    if config is None or (source is not None and not source.enabled) or (destination is not None and not destination.enabled):
+        return False
+    if destination is source and source is not None:
+        return move_group_item(source, macro_id, target)
+    moving = [SequenceItem('macro', macro_id=macro_id, gap_seconds=config.interval_seconds,
+                           gap_random_seconds=config.random_seconds)]
+    blocks = []
+    if source is not None:
+        roles, errors = writing_layout(source)
+        if errors:
+            return False
+        role, block = roles.get(macro_id, (None, None))
+        if role in ('body', 'close') or (role == 'open' and destination is None):
+            return False
+        start = next(i for i, item in enumerate(source.children) if item.macro_id == macro_id)
+        end = start+1
+        if role == 'open':
+            end = next(i for i, item in enumerate(source.children) if item.macro_id == block.closing)+1
+            blocks = [block]
+        moving = source.children[start:end]
+    if destination is not None:
+        roles, errors = writing_layout(destination)
+        if errors:
+            return False
+        target = max(0, min(len(destination.children), target))
+        if blocks and target < len(destination.children):
+            role = roles.get(destination.children[target].macro_id, (None, None))[0]
+            if role in ('body', 'close'):
+                return False
+    else:
+        roots = [c for c in configs if not any(c.id_token == i.macro_id for g in groups for i in g.children)]
+        remaining = [c for c in roots if c is not config]
+        target = max(0, min(len(roots), target))
+        if source is None and roots.index(config) < target:
+            target -= 1
+        target = min(len(remaining), target)
+        if source is None and roots.index(config) == target:
+            return False
+        configs.remove(config)
+        index = configs.index(remaining[target]) if target < len(remaining) else len(configs)
+        configs.insert(index, config)
+    if source is not None:
+        source.children[:] = [item for item in source.children if item not in moving]
+        source.writing_blocks[:] = [block for block in source.writing_blocks if block not in blocks]
+    if destination is not None:
+        destination.children[target:target] = moving
+        destination.writing_blocks.extend(blocks)
+    return True
+
+
 def move_group_item(group: SequenceGroup, macro_id: str, target: int) -> bool:
     """Opening handle moves a complete block; closing stays attached."""
     roles, errors = writing_layout(group)

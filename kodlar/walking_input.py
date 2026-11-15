@@ -7,6 +7,7 @@ import threading
 import time
 
 from .platform_win import foreground_window
+from .movement_keys import send_movement_key
 
 LOGGER = logging.getLogger(__name__)
 
@@ -86,13 +87,13 @@ class ContinuousWalker:
             # Register ownership first so even a failing injection gets key-up.
             self.held.add(key)
             self.engine.mark_injected_key(key)
-            self.engine.keyboard.press(key)
+            send_movement_key(key, True, self.engine.keyboard)
 
     def release(self, key):
         with self.engine.input_lock:
             if key in self.held:
                 try:
-                    self.engine.keyboard.release(key)
+                    send_movement_key(key, False, self.engine.keyboard)
                 finally:
                     self.held.discard(key)
 
@@ -166,7 +167,9 @@ class ContinuousWalker:
                         self.controller.motion_released(admitted_request.generation, expired)
             except Exception:
                 LOGGER.exception('Sürekli yürüyüş girdisi başarısız')
-                self.controller.failure = 'Hareket gönderilemedi; oyunu kontrol edin'
+                message = 'Hareket gönderilemedi; oyun ve uygulama yetkilerini kontrol edin'
+                self.controller.publish_failure(admitted_request.generation, message)
+                self.engine.log(message)
                 self.halt()
 
     def stop(self):

@@ -119,6 +119,10 @@ class PositionModelTests(unittest.TestCase):
 
 class PositionPriorityTests(unittest.TestCase):
     def controller(self):
+        injection = patch('kodlar.walking_input.send_movement_key',
+                          side_effect=lambda key, down, keyboard: (keyboard.press if down else keyboard.release)(key))
+        injection.start()
+        self.addCleanup(injection.stop)
         engine = SimpleNamespace(writing_gate=WritingGate(), is_running=True,
             _writing_target=None, input_lock=threading.RLock(), keyboard=Mock(), mark_injected_key=Mock())
         controller = PositionController(engine)

@@ -55,6 +55,9 @@ denenir. Bu, koordinat geri bildirimli kaçınmadır; haritadan rota çıkarmaz.
 Okuma kaybı, tur süresi veya kaçınma sayısı dönüş kilidini kaldırmaz. Gerçek ve
 güncel bir ölçüm Min'in altında olduğunda W bırakılır. Min sıfırsa tam merkez
 ölçümü gerekir. Yazı, odak kaybı ve Durdur yine tuşları bırakır.
+Hareket tuşları Windows fiziksel tarama kodlarıyla gönderilir; W tek bir tuş
+basışıyla tutulur, A/D düzeltmeleri sırasında veya OCR kaybında bırakılmaz.
+Windows girdi gönderimini reddederse durum kaydında yetki uyarısı gösterilir.
 
 Yazı bölümleri yürüyüşten önceliklidir; yazı bitince yeni konum doğrulanır.
 Yazı dışındaki W/A/S/D kartları geçici olarak bastırılır; kayıtlı aktiflikleri
@@ -175,6 +178,17 @@ Git çalışma kopyalarında otomatik dosya değiştirme kapalıdır.
 
 Profil işlemleri profil satırındaki `⋯` menüsündedir. Gruplar yalnızca ana
 `BAŞLAT` ile başlatılır; her kök grup kendi iç sırasını yürütür.
+`Profili kopyala`, yeni profil adı ister ve açık profilin tuşlarını, gruplarını,
+yazı bölümlerini ve konum ayarlarını bağımsız bir kopyaya aktarır.
+
+Tüm tuş kartlarının `⠿` tutamacından sürükleyerek bağımsız tuşları sıralayabilir,
+grup içine veya `Grup dışı tuşlar` alanına taşıyabilirsiniz. Gruplar arasında
+taşınan kartın beklemeleri korunur. Yazı bölümü, açılış kartından bütün olarak
+başka gruba taşınır; tek bir gövde/kapanış kartı dışarı çıkarılarak bölünmez.
+Çalışan makrolarda ve pasif gruplarda taşıma kapalıdır. Esc taşımayı iptal eder.
+
+Kayıt panelinde Hazır, başlat/durdur ve hata gibi önemli mesajlar gösterilir.
+Tekrarlanan tuş/tıklama ve yazı işlem ayrıntıları yalnızca dosya günlüğüne yazılır.
 
 `main` dalına gönderilen değişiklikler GitHub Actions ile uygulamanın kayıtlı
 sürüm numarasıyla yayımlanır. İndirilecek dosya Releases içindeki `arik-makro.zip`tir.

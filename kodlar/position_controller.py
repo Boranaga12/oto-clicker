@@ -264,6 +264,9 @@ class PositionController:
             return
         self.mark_reading_lost(True)
         self.obstacles.reset_evidence()
+        if self.failure:
+            self.publish_failure(generation, self.failure)
+            return
         if self.returning and self.engine.is_running and self.config.enabled and self.config.ready and self.target is not None:
             self.drive(generation, time.monotonic())
             self.publish(generation, status='Merkeze dönüş kilitli; W basılı, koordinat aranıyor')

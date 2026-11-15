@@ -176,7 +176,10 @@ class RandomizedAutoClicker:
             if now - previous < minimum_interval:
                 return
             self._activity_log_times[token] = now
-        self.log(message)
+        if message.startswith(('Tuş:', 'Tıklama:')):
+            LOGGER.info(message)
+        else:
+            self.log(message)
 
     def _publish_state(self, active: bool, reason: str | None = None) -> None:
         self.log("Makro başlatıldı." if active else "Makro durduruldu.")
@@ -360,7 +363,7 @@ class RandomizedAutoClicker:
                     raise RuntimeError("Oyun penceresinin odağı değişti.")
             self.writing_gate.focus_check = check_focus
             try:
-                self.log(f"Yazı başladı: {group.name}")
+                LOGGER.info('Yazı başladı: %s', group.name)
                 items = {item.macro_id: item for item in group.children}
                 for index, key in enumerate(members):
                     if cancelled():
@@ -382,7 +385,7 @@ class RandomizedAutoClicker:
                         delay = max(0.0, self.macro_delay(key) - (time.monotonic()-started))
                     if self.writing_gate.wait(delay, cancelled):
                         return False
-                self.log(f"Yazı tamamlandı: {group.name}")
+                LOGGER.info('Yazı tamamlandı: %s', group.name)
                 for worker in workers:
                     worker.execute_chain_actions()
                 return True
@@ -595,10 +598,7 @@ class RandomizedAutoClicker:
             self._load_initial_profile()
             with keyboard.Listener(on_press=self.on_key_press) as keyboard_listener, \
                     MouseListener(on_click=self.on_mouse_click) as mouse_listener:
-                self.log(
-                    "Hazır. Kısayol tuşu veya orta fare tuşuyla sistemi "
-                    "başlatıp durdurabilirsiniz."
-                )
+                self.log('Hazır.')
                 self.stop_event.wait()
                 keyboard_listener.stop()
                 mouse_listener.stop()
