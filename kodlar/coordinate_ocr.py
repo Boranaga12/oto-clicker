@@ -71,6 +71,8 @@ public static class CoordinateFrames {
     }
     frames.Add(Encode(inverted, true, 4, true));
     frames.Add(Encode(inverted, true, 6, true));
+    frames.Add(Encode(inverted, true, 4, true, 6));
+    frames.Add(Encode(inverted, true, 4, true, 8));
    }
    foreach(int threshold in new int[]{125,145,165,185})
    using (Bitmap mask = new Bitmap(w,h,PixelFormat.Format32bppArgb)) {
@@ -90,17 +92,20 @@ public static class CoordinateFrames {
     frames.Add(Encode(mask, true, 4, false));
     frames.Add(Encode(mask, true, 6, true));
     frames.Add(Encode(mask, true, 8, false));
+    frames.Add(Encode(mask, true, 4, true, 6));
+    frames.Add(Encode(mask, true, 4, true, 8));
    }
    return frames.ToArray();
   }
  }
- static string Encode(Bitmap source, bool mask, int scale, bool smooth) {
-  using(Bitmap scaled=new Bitmap(source.Width*scale+32,source.Height*scale+32,PixelFormat.Format32bppArgb)) {
+ static string Encode(Bitmap source, bool mask, int scale, bool smooth, int vertical=0) {
+  if(vertical==0) vertical=scale;
+  using(Bitmap scaled=new Bitmap(source.Width*scale+32,source.Height*vertical+32,PixelFormat.Format32bppArgb)) {
    using(Graphics g=Graphics.FromImage(scaled)) {
     g.Clear(mask ? Color.White : Color.Black);
     g.InterpolationMode=smooth ? InterpolationMode.HighQualityBicubic : InterpolationMode.NearestNeighbor;
     g.PixelOffsetMode=PixelOffsetMode.Half;
-    g.DrawImage(source,new Rectangle(16,16,source.Width*scale,source.Height*scale));
+    g.DrawImage(source,new Rectangle(16,16,source.Width*scale,source.Height*vertical));
    }
    using(MemoryStream stream=new MemoryStream()) {
     scaled.Save(stream,ImageFormat.Png); return Convert.ToBase64String(stream.ToArray());
