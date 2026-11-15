@@ -33,7 +33,8 @@ bırakıldıktan sonra başlar. Bağımsız kartların aralıkları etkilenmez.
 | Yazı bölümü | Açılış–gövde–kapanış birlikte korunur; bölüm içi geçişler uygulanır |
 | Yazı kapanışının beklemesi | Yazı kilidi bırakıldıktan sonra uygulanır |
 | Başka yazı veya doğrulanmış merkeze dönüş | Normal adımların beklemesi duraklar; sonra kalan süre devam eder |
-| Koordinat okunamıyor | Yalnızca yürüyüş duraklar; normal gruplar devam eder |
+| Dönüş kilitlenmeden koordinat okunamıyor | Normal gruplar devam eder |
+| Maks aşılıp dönüş kilitlendikten sonra koordinat okunamıyor | W tutulur; Min altı gerçek ölçüme kadar normal gruplar bekler |
 | Grup içi Tab yenileme süresi dolmuş | Tab ancak kendi sırası geldiğinde bir kez basılır |
 
 Tıklama başarısız görünse bile kör bir ikinci tıklama gönderilmez. Böylece

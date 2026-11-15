@@ -5,6 +5,7 @@ import os
 from pathlib import Path
 import threading
 import time
+import math
 from types import SimpleNamespace
 import unittest
 from unittest.mock import Mock, patch
@@ -169,28 +170,25 @@ class PositionPriorityTests(unittest.TestCase):
         controller.gate.position_valid_until = time.monotonic()-1
         self.assertTrue(controller.gate.allowed())
 
-    def test_ocr_loss_releases_normal_macros_and_preserves_return_intent(self):
+    def test_ocr_loss_keeps_latched_w_and_normal_macros_paused(self):
         controller = self.controller()
         controller.target = 100
         controller.returning = True
         controller.filter.accept((11, 0), time.monotonic())
         controller.gate.set_position_blocked(True)
         controller.missing_reading(1)
-        self.assertTrue(controller.gate.allowed())
+        self.assertFalse(controller.gate.allowed())
         self.assertTrue(controller.returning)
-        controller.motion.drive.assert_not_called()
-        controller.motion.halt.assert_called()
+        self.assertEqual(controller.motion.drive.call_args.args[3], float('inf'))
+        controller.motion.halt.assert_not_called()
 
-    def test_read_loss_never_unblocks_normal_keys_before_movement_key_up(self):
+    def test_read_loss_before_latch_does_not_stop_other_macros(self):
         controller = self.controller()
         controller.target = 100
-        controller.returning = True
-        controller.motion.holding = True
+        controller.returning = False
+        controller.motion.holding = False
         controller.gate.set_position_blocked(True)
         controller.missing_reading(1)
-        self.assertFalse(controller.gate.allowed())
-        controller.motion.holding = False
-        controller.motion_released(1)
         self.assertTrue(controller.gate.allowed())
         controller.motion.drive.assert_not_called()
 
@@ -203,34 +201,38 @@ class PositionPriorityTests(unittest.TestCase):
         controller.engine.keyboard.press.assert_not_called()
         controller.engine.keyboard.release.assert_not_called()
 
-    def test_prolonged_return_keeps_normal_macros_blocked(self):
+    def test_prolonged_return_does_not_cancel_the_latched_goal(self):
         controller = self.controller()
         controller.target = 100
         controller.returning = True
-        controller.motion.total = 90.1
+        controller.motion.total = 900
         with patch('kodlar.position_controller.foreground_window', return_value=100), \
              patch('kodlar.position_controller.foreground_is_ours', return_value=False):
             controller.evaluate((12, 0), time.monotonic(), 1)
-        controller.motion.drive.assert_not_called()
-        self.assertIsNotNone(controller.failure)
+        controller.motion.drive.assert_called()
+        self.assertIsNone(controller.failure)
         self.assertFalse(controller.gate.allowed())
 
-    def test_stalled_progress_alternates_detours_then_reaims(self):
+    def test_stationary_evidence_is_required_before_a_detour(self):
         controller = self.controller()
         controller.target = 100
         controller.returning = True
         controller.best_gap = 12
-        controller.motion.total = 6.5
+        controller.motion.holding = True
+        controller.steering.heading = math.pi
+        clock = [time.monotonic()]
         with patch('kodlar.position_controller.foreground_window', return_value=100), \
-             patch('kodlar.position_controller.foreground_is_ours', return_value=False):
-            controller.evaluate((12, 0), time.monotonic(), 1)
-            self.assertEqual(controller.motion.drive.call_args.args[-1][0], 'a')
-            controller.motion.total = controller.detour_until+6.5
-            controller.evaluate((12, 0), time.monotonic(), 1)
-            self.assertEqual(controller.motion.drive.call_args.args[-1][0], 'd')
-            controller.motion.total = controller.detour_until+.1
-            controller.evaluate((10, 0), time.monotonic(), 1)
-            self.assertEqual(controller.best_gap, 10)
+             patch('kodlar.position_controller.foreground_is_ours', return_value=False), \
+             patch('kodlar.position_controller.time.monotonic', side_effect=lambda: clock[0]):
+            for index in range(18):
+                controller.motion.total = index*.25
+                controller.evaluate((12, 0), clock[0], 1)
+                clock[0] += .25
+            turns = [call.args[-1] for call in controller.motion.drive.call_args_list if call.args[-1] is not None]
+            self.assertEqual(len(turns), 1)
+            self.assertEqual(turns[0][0], 'a')
+            controller.evaluate((10.9, 0), clock[0], 1)
+            self.assertIsNone(controller.obstacles.escape_origin)
         self.assertIsNone(controller.failure)
 
     def test_missing_frame_does_not_erase_outside_max_confirmation(self):
@@ -284,20 +286,43 @@ class PositionPriorityTests(unittest.TestCase):
             motion.stop()
         controller.engine.keyboard.release.assert_called_once_with('w')
 
-    def test_maximum_entry_and_minimum_exit_use_two_readings(self):
+    def test_maximum_latches_return_until_a_real_below_minimum_reading(self):
         controller = self.controller()
         with patch('kodlar.position_controller.foreground_window', return_value=100), \
              patch('kodlar.position_controller.foreground_is_ours', return_value=False), \
              patch('kodlar.position_controller.window_at_point', return_value=100):
             controller.evaluate((11, 0), time.monotonic(), 1)
-            self.assertFalse(controller.returning)
+            self.assertTrue(controller.returning)
             controller.evaluate((11, 0), time.monotonic(), 1)
             self.assertTrue(controller.returning)
             controller.evaluate((1, 0), time.monotonic(), 1)
-            self.assertTrue(controller.returning)
+            self.assertFalse(controller.returning)
             controller.evaluate((1, 0), time.monotonic(), 1)
             self.assertFalse(controller.returning)
             self.assertTrue(controller.gate.allowed())
+
+    def test_latched_return_resumes_w_after_writing_without_any_ocr_result(self):
+        controller = self.controller()
+        controller.target = 100
+        controller.returning = True
+        controller.motion = ContinuousWalker(controller)
+        self.addCleanup(controller.motion.stop)
+        first = threading.Event()
+        resumed = threading.Event()
+        calls = []
+        def pressed(key):
+            calls.append(key)
+            (first if len(calls) == 1 else resumed).set()
+        controller.engine.keyboard.press.side_effect = pressed
+        with patch('kodlar.walking_input.foreground_window', return_value=100):
+            controller.drive(1, time.monotonic())
+            self.assertTrue(first.wait(1))
+            with controller.gate.exclusive(lambda: False) as admitted:
+                self.assertTrue(admitted)
+                controller.engine.keyboard.release.assert_called_once_with('w')
+            self.assertTrue(resumed.wait(1))
+            self.assertTrue(controller.returning)
+            controller.motion.stop()
 
     def test_w_is_held_across_updates_and_a_correction(self):
         controller = self.controller()
@@ -410,9 +435,12 @@ class KarosScreenshotOCRTests(unittest.TestCase):
             ('karos-stable.png', (0, 0, 148, 86), (71.9, 57.2)),
             ('karos-77.png', (12, 8, 97, 18), (77.0, 56.2)),
             ('karos-77.png', (0, 0, 120, 40), (77.0, 56.2)),
+            ('karos-85.png', (0, 0, 118, 38), (85.3, 50.8)),
         ):
             with self.subTest(image=name):
                 encoded = base64.b64encode((fixtures/name).read_bytes()).decode('ascii')
                 point = self.reader.read(region, encoded)
                 self.assertEqual(point, expected, repr(self.reader.last_texts))
+                if name == 'karos-85.png':
+                    self.assertTrue(self.reader.last_texts[0].startswith('Rakam tanıyıcı'), repr(self.reader.last_texts))
                 self.assertEqual(self.reader.read(region, encoded), expected, 'Cached OCR preparation changed the reading')

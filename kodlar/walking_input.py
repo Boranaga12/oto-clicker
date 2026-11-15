@@ -106,6 +106,17 @@ class ContinuousWalker:
     def run(self):
         while not self.closed.is_set():
             self.wake.clear()
+            # Writing temporarily releases ownership, but does not erase a
+            # latched return. Re-admit W after that transaction ends.
+            with self.lock:
+                request = self.request
+            epoch = self.engine.writing_gate.position_epoch
+            if (request is not None and self.controller.returning
+                    and request.generation == self.controller.generation and request.epoch != epoch
+                    and self.engine.is_running and not self.engine.writing_gate.writer_pending()):
+                with self.lock:
+                    if self.request is request:
+                        self.request = WalkRequest(request.generation, request.target, epoch, float('inf'))
             if self.cancelled():
                 self.wake.wait(.05)
                 continue

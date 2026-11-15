@@ -47,22 +47,25 @@ görünür kalır. Ekran düzeni değişirse alanı yeniden seçin.
 
 Karakter dururken **Anlık Konumu Al** ile üç tutarlı okumadan merkez kaydedin.
 `0 ≤ Min < Maks` olacak şekilde mesafeleri ayarlayıp kartı etkinleştirin.
-İki güvenilir okumada Maks aşılırsa normal makrolar durur; W sürekli basılı
+Güvenilir ölçümde Maks aşılırsa merkeze dönüş kilitlenir; W sürekli basılı
 tutulurken A/D ile yön düzeltilerek Min mesafesine dönülür. Kısa OCR hataları
 bu iki ölçümün doğrulamasını sıfırlamaz. İlerleme durursa önce bir yana dönülür,
 biraz ilerlenir, sonra yeniden merkez hedeflenir; sonraki denemede diğer yan
 denenir. Bu, koordinat geri bildirimli kaçınmadır; haritadan rota çıkarmaz.
-Bir dönüş en fazla 90 saniye etkin yürüyüş ve sekiz kaçınma dener; aşılamayan
-engelde normal makrolar bekletilir ve durum kartta açıklanır.
+Okuma kaybı, tur süresi veya kaçınma sayısı dönüş kilidini kaldırmaz. Gerçek ve
+güncel bir ölçüm Min'in altında olduğunda W bırakılır. Min sıfırsa tam merkez
+ölçümü gerekir. Yazı, odak kaybı ve Durdur yine tuşları bırakır.
 
 Yazı bölümleri yürüyüşten önceliklidir; yazı bitince yeni konum doğrulanır.
 Yazı dışındaki W/A/S/D kartları geçici olarak bastırılır; kayıtlı aktiflikleri
 değişmez. Konum ayarları çalışma sırasında düzenlenemez.
 
-Okuma, tek bir gizli Windows PowerShell sürecindeki yerel Windows OCR motoruyla
-yapılır. Ek Python paketi veya bulut servisi kullanılmaz. Windows OCR dili yoksa
-kart açıklamayla pasif kalır; Windows dil ayarlarından OCR destekli bir dil
-kurulmalıdır. Görüntüler diske veya ağa gönderilmez.
+Okuma önce gerçek ondalık noktalarını ve tek tek rakam şekillerini ayıran yerel
+sayısal tanıyıcıyla yapılır. Font referansları 0–9 rakamlarını içerir; koordinat
+değerleri ezberlenmez. Birden çok kontrast düzeyi karşılaştırılır. Belirsiz
+görüntüde aynı karenin Windows OCR okuması yedek olarak kullanılır. Sayısal
+tanıyıcı için Windows OCR dil paketi gerekmez. Ek Python paketi veya bulut
+servisi kullanılmaz; görüntüler diske veya ağa gönderilmez.
 
 Aktif kutusu sistem duruyorken her zaman açılıp kapatılabilir; eksik ayarlar
 bu tercihi sıfırlamaz. Kartın durum satırı eksik alanı, merkezi veya OCR sorununu
@@ -73,11 +76,13 @@ dilin Metin Tanıma bileşenini yükleyip **OCR’yi Yeniden Dene** düğmesini 
 Yavaş bilgisayarlarda merkez için 45 saniyeye kadar beklenir; doğrulanan okuma
 sayısı kartta 0/3 olarak gösterilir. Kısa okuma araları tutarlı ölçümleri silmez.
 
-Koordinat okunamazsa yalnızca otomatik yürüyüş bırakılır; normal tuşlar ve
-gruplar çalışmaya devam eder. Okuma düzelince konum tekrar değerlendirilir;
-devam eden merkeze dönüş gerekiyorsa otomatik sürer. Eksik konum verisi tek
-başına normal bekleme sayaçlarını durdurmaz. Yazı, odak kaybı ve durdurma
-yürüyüş tuşlarını bırakır. Alanı kaldırmak Aktif tercihini değiştirmez.
+Dönüş henüz kilitlenmemişken koordinat okunamaması normal grupları durdurmaz.
+Dönüş kilitlendikten sonra okunamayan karelerde W tutulur ve normal gruplar
+bekler. Yazı bittikten sonra OCR sonucu gelmese de kilitli dönüş sürer.
+Engel kararı için W basılı, dönüş yapılmayan, en az dört saniyeye yayılan en
+az sekiz kesintisiz güvenilir ölçümde gerçek yer değişimi olmamalıdır.
+Merkeze olan uzaklığın artması tek başına engel sayılmaz. Sapmadan sonra gerçek
+yer değiştirme ölçülür ve tekrar merkez hedeflenir.
 
 Aç/kapa kısayoluna atanmış makro gönderildiğinde sistem kendini durdurur. Bu
 kartın izlemesi seçilen renk **bulununca** çalışır. Diğer kartlar renk farklıyken

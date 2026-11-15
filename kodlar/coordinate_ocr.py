@@ -12,6 +12,7 @@ import time
 import re
 
 from .position_model import parse_coordinates
+from .glyph_ocr import GlyphReader
 
 
 def ocr_error_message(error):
@@ -60,7 +61,6 @@ try {
    if ($null -ne $engine) { break }
   }
  }
- if ($null -eq $engine) { throw 'Windows OCR language is not installed' }
  Add-Type -ReferencedAssemblies System.Drawing,System.Core -TypeDefinition @'
 using System;
 using System.Drawing;
@@ -70,7 +70,7 @@ using System.IO;
 using System.Runtime.InteropServices;
 using System.Collections.Generic;
 public static class CoordinateFrames {
- public class Batch { public string[] Frames; public int[][] Shapes; }
+ public class Batch { public string[] Frames; public int[][] Shapes; public string Pixels; public string Snapshot; }
  [DllImport("user32.dll")] static extern bool SetProcessDpiAwarenessContext(IntPtr context);
  [DllImport("user32.dll")] static extern IntPtr SetThreadDpiAwarenessContext(IntPtr context);
  [DllImport("user32.dll")] static extern IntPtr GetDC(IntPtr window);
@@ -79,7 +79,7 @@ public static class CoordinateFrames {
  static CoordinateFrames() {
   try { SetProcessDpiAwarenessContext(new IntPtr(-4)); } catch(EntryPointNotFoundException) { }
  }
- public static Batch Make(int x, int y, int w, int h, string image, int[] preferred) {
+ public static Batch Make(int x, int y, int w, int h, string image, int[] preferred, bool pixelsOnly) {
   try { SetThreadDpiAwarenessContext(new IntPtr(-4)); } catch(EntryPointNotFoundException) { }
   using (Bitmap source = new Bitmap(w,h,PixelFormat.Format32bppArgb)) {
    using (Graphics g = Graphics.FromImage(source)) {
@@ -96,6 +96,22 @@ public static class CoordinateFrames {
     }
     else using (MemoryStream stream = new MemoryStream(Convert.FromBase64String(image)))
      using (Bitmap input = new Bitmap(stream)) g.DrawImage(input,new Rectangle(0,0,w,h),new Rectangle(x,y,w,h),GraphicsUnit.Pixel);
+   }
+   byte[] neutral=new byte[w*h];
+   BitmapData raw=source.LockBits(new Rectangle(0,0,w,h),ImageLockMode.ReadOnly,PixelFormat.Format32bppArgb);
+   byte[] colors=new byte[w*h*4];
+   try { Marshal.Copy(raw.Scan0,colors,0,colors.Length); } finally {source.UnlockBits(raw);}
+   for(int i=0;i<neutral.Length;i++) {
+    int at=i*4,lo=Math.Min(colors[at],Math.Min(colors[at+1],colors[at+2]));
+    int hi=Math.Max(colors[at],Math.Max(colors[at+1],colors[at+2]));
+    neutral[i]=(byte)(hi-lo<=65 ? lo : 0);
+   }
+   string pixels=Convert.ToBase64String(neutral);
+   if(pixelsOnly) {
+    using(MemoryStream snapshot=new MemoryStream()) {
+     source.Save(snapshot,ImageFormat.Png);
+     return new Batch {Pixels=pixels, Snapshot=Convert.ToBase64String(snapshot.ToArray())};
+    }
    }
    List<string> frames = new List<string>();
    List<int[]> shapes = new List<int[]>();
@@ -136,7 +152,7 @@ public static class CoordinateFrames {
      AddFrame(frames,selected,negative,true,6);
     }
    }
-   return new Batch {Frames=frames.ToArray(), Shapes=shapes.ToArray()};
+   return new Batch {Frames=frames.ToArray(), Shapes=shapes.ToArray(), Pixels=pixels};
   }
  }
  static void AddFrame(List<string> frames,HashSet<int> selected,Bitmap source,bool mask,int scale,bool reinforce=false) {
@@ -244,14 +260,23 @@ public static class CoordinateFrames {
  }
 }
 '@
- [Console]::WriteLine('{"ready":true}')
+ [Console]::WriteLine((@{ready=$true; ocr_available=($null -ne $engine)} | ConvertTo-Json -Compress))
+ $lastBatch=$null; $lastCaptureId=0; $captureTimer=$null
  while ($null -ne ($line = [Console]::ReadLine())) {
   try {
    $request = $line | ConvertFrom-Json
    $r = $request.region
    if ($r.Count -ne 4 -or $r[2] -lt 8 -or $r[2] -gt 640 -or $r[3] -lt 8 -or $r[3] -gt 180) { throw 'Invalid coordinate region' }
-   $captureTimer = [System.Diagnostics.Stopwatch]::StartNew()
-   $batch = [CoordinateFrames]::Make($r[0],$r[1],$r[2],$r[3],$request.image,[int[]]$request.preferred)
+   if($request.mode -eq 'capture') {
+    $captureTimer = [System.Diagnostics.Stopwatch]::StartNew()
+    $lastBatch = [CoordinateFrames]::Make($r[0],$r[1],$r[2],$r[3],$request.image,$null,$true)
+    $lastCaptureId=$request.id
+    [Console]::WriteLine((@{id=$request.id; pixels=$lastBatch.Pixels; age_ms=$captureTimer.Elapsed.TotalMilliseconds} | ConvertTo-Json -Compress))
+    continue
+   }
+   if($null -eq $lastBatch -or $request.capture_id -ne $lastCaptureId) {throw 'Stale coordinate capture'}
+   if($null -eq $engine) {throw 'Windows OCR language is not installed'}
+   $batch = [CoordinateFrames]::Make(0,0,$r[2],$r[3],$lastBatch.Snapshot,[int[]]$request.preferred,$false)
    $frames = $batch.Frames
    $texts = @()
    $indices = @(0..($frames.Length-1))
@@ -292,6 +317,8 @@ class CoordinateOCR:
         self.preferred = None
         self.region = None
         self.capture_stamp = 0.0
+        self.glyphs = GlyphReader()
+        self.native_available = True
 
     @staticmethod
     def parse_frame(text):
@@ -360,6 +387,7 @@ class CoordinateOCR:
             response = self.responses.get(timeout=30)
             if not response.get('ready'):
                 raise RuntimeError(response.get('error', 'Windows OCR başlatılamadı'))
+            self.native_available = bool(response.get('ocr_available', True))
         except queue.Empty as error:
             self.close()
             raise RuntimeError('Windows OCR startup timed out') from error
@@ -374,10 +402,27 @@ class CoordinateOCR:
                 self.region = tuple(region)
                 self.preferred = None
             self.serial += 1
-            request = {'id': self.serial, 'region': region, 'image': image,
-                       'preferred': self.preferred}
+            request = {'id': self.serial, 'region': region, 'image': image, 'mode': 'capture'}
             try:
                 self.process.stdin.write(json.dumps(request)+'\n')
+                self.process.stdin.flush()
+                response = self.responses.get(timeout=6)
+                if response.get('id') != self.serial or 'error' in response:
+                    raise RuntimeError(response.get('error', 'Geçersiz OCR yanıtı'))
+                self.capture_stamp = time.monotonic()-float(response.get('age_ms', 0))/1000
+                pixels = base64.b64decode(response['pixels'])
+                numeric = self.glyphs.read(pixels, region[2], region[3])
+                if numeric is not None:
+                    self.last_texts = [f'Rakam tanıyıcı: {numeric[0]:.1f} / {numeric[1]:.1f}']
+                    return numeric
+                if not self.native_available:
+                    self.last_texts = ['Rakam şekli belirsiz; Windows OCR yedeği için dil bileşeni bulunamadı.']
+                    return None
+                capture_id = self.serial
+                self.serial += 1
+                fallback = {'id': self.serial, 'capture_id': capture_id, 'mode': 'ocr',
+                            'region': region, 'preferred': self.preferred}
+                self.process.stdin.write(json.dumps(fallback)+'\n')
                 self.process.stdin.flush()
                 response = self.responses.get(timeout=6)
                 if response.get('id') != self.serial or 'error' in response:
@@ -386,6 +431,7 @@ class CoordinateOCR:
                 self.capture_stamp = time.monotonic()-float(response.get('age_ms', 0))/1000
                 points = [self.parse_frame(text) if self.shape_allows(text, response.get('shapes', []))
                           else None for text in self.last_texts]
+                points = [point if point is None or self.glyphs.supports_native(point) else None for point in points]
                 indexed = dict(zip(response['indices'], points))
                 primary = indexed.get(1)
                 if primary is not None:

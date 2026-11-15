@@ -1,6 +1,16 @@
 """Curated notes bundled with the matching application release."""
 
 CURRENT_NOTES = (
+    'Koordinatlar rakam rakam, yazı şekilleri ve gerçek ondalık noktalarıyla okunur; 3/6/8 ayrımı için özel sayısal tanıyıcı eklendi.',
+    'Rakam tanıyıcı yerel çalışır; belirsiz görüntüde Windows OCR aynı yakalanmış kare üzerinden yedek olarak kullanılır.',
+    'Maks aşılınca merkeze dönüş kilitlenir; okuma kesilse de W basılı kalır, güvenilir Min altı ölçümde bırakılır.',
+    'Yazı W’yi geçici bırakır; yazı bitince dönüş kilidi yeni OCR beklemeden yürüyüşe devam edebilir.',
+    'Süreye ve uzaklığın azalmamasına dayalı erken durdurmalar kaldırıldı; odak kaybı ve Durdur tuş bırakmaya devam eder.',
+    'Engel kontrolü, dönüşsüz ve kesintisiz güvenilir ölçümlerde gerçek yer değiştirme olmamasını doğrular; hatalı sapmalar azaltıldı.',
+)
+
+HISTORY = (
+    ("2.4.0", (
     'Grup beklemeleri kartların arasına taşındı; tuş bırakıldıktan sonra beklenir ve rastgele ek süre açıkça gösterilir.',
     'Eski profillerin aralık/rastgele değerleri grup geçişlerine aktarılır; bağımsız kartların aralıkları korunur.',
     'Grup sol tıklamalarında fare üzerine gelince değişen renk yüzünden iptal olma düzeltildi; basma/bırakma süreleri güçlendirildi.',
@@ -8,9 +18,7 @@ CURRENT_NOTES = (
     'Grup içindeki Tab yenilemesi sırasını atlayarak tıklamaların hedefini değiştirmez.',
     'Konum okunamıyorsa yalnızca otomatik yürüyüş bekler; diğer makrolar ve gruplar çalışmaya devam eder.',
     'Sabit koordinat panellerinde katmanlı pencere yakalama ve ekran ölçeği uyumu geliştirildi.',
-)
-
-HISTORY = (
+    )),
     ("2.3.2", (
     'Başka bilgisayarın ekran düzenine ait alanda merkez kaydetmeye çalışıldığında yeniden seçim gerektiği hemen açıklanır.',
     'Yavaş bilgisayarlarda merkez doğrulamasının sürekli sıfırlanması düzeltildi; bekleme süresi ve 0/3 ilerleme göstergesi eklendi.',
