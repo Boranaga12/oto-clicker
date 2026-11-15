@@ -24,6 +24,7 @@ def default_profiles() -> dict[str, Any]:
         "active_profile": DEFAULT_PROFILE,
         "profiles": {DEFAULT_PROFILE: []},
         "groups": {DEFAULT_PROFILE: []},
+        "positions": {DEFAULT_PROFILE: {}},
     }
 
 
@@ -52,11 +53,17 @@ def _normalise(data: Any) -> dict[str, Any]:
     }
     for name in profiles:
         groups.setdefault(name, [])
+    positions = data.get('positions', {})
+    if not isinstance(positions, dict):
+        positions = {}
+    positions = {name: positions.get(name, {}) if isinstance(positions.get(name), dict) else {}
+                 for name in profiles}
 
     return {
         "active_profile": active,
         "profiles": profiles,
         "groups": groups,
+        "positions": positions,
     }
 
 

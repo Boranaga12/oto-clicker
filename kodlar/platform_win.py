@@ -104,6 +104,24 @@ def screen_bounds() -> tuple[int, int, int, int] | None:
     return values if values[2] > 0 and values[3] > 0 else None
 
 
+def monitor_layout():
+    """Include individual monitor positions, even if virtual bounds stay equal."""
+    if os.name != 'nt':
+        return None
+    monitors = []
+    callback_type = ctypes.WINFUNCTYPE(wintypes.BOOL, ctypes.c_void_p,
+                                      ctypes.c_void_p, ctypes.POINTER(wintypes.RECT),
+                                      ctypes.c_ssize_t)
+    def collect(_monitor, _dc, rectangle, _data):
+        rect = rectangle.contents
+        monitors.append((rect.left, rect.top, rect.right, rect.bottom))
+        return True
+    callback = callback_type(collect)
+    if not _user32.EnumDisplayMonitors(None, None, callback, 0):
+        return None
+    return tuple(sorted(monitors))
+
+
 
 def get_pixel_color_win32(x: int, y: int) -> str:
     return PixelSampler().get(x, y)
@@ -237,3 +255,14 @@ def foreground_window() -> int | None:
         return None
     _user32.GetForegroundWindow.restype = ctypes.c_void_p
     return _user32.GetForegroundWindow()
+
+
+def window_at_point(x: int, y: int) -> int | None:
+    if os.name != 'nt':
+        return None
+    _user32.WindowFromPoint.argtypes = [wintypes.POINT]
+    _user32.WindowFromPoint.restype = ctypes.c_void_p
+    _user32.GetAncestor.argtypes = [ctypes.c_void_p, wintypes.UINT]
+    _user32.GetAncestor.restype = ctypes.c_void_p
+    handle = _user32.WindowFromPoint(wintypes.POINT(x, y))
+    return _user32.GetAncestor(handle, 2) if handle else None

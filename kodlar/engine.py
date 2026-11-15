@@ -18,6 +18,8 @@ from .sequence_runner import SequenceRunner
 from .sequences import SequenceGroup, grouped_macro_ids, sequence_groups_from_list, flatten_groups
 from .workers import KeyClickerWorker, StepResult, MOUSE_NAMES
 from .writing import WritingGate
+from .position_controller import PositionController
+from .position_model import PositionConfig
 from .platform_win import foreground_window, foreground_is_ours
 from .sequences import writing_layout
 
@@ -72,6 +74,7 @@ class RandomizedAutoClicker:
         self.worker_lock = threading.RLock()
         self.input_lock = threading.RLock()
         self.writing_gate = WritingGate()
+        self.position_controller = PositionController(self)
         self._writing_target = None
         self.last_toggle_at = 0.0
         self.manual_enabled = False
@@ -181,6 +184,11 @@ class RandomizedAutoClicker:
             self.state_callback(active)
 
     def set_enabled(self, active: bool, reason: str | None = None) -> None:
+        if active and self.position_controller.config.enabled:
+            state = self.position_controller.state()
+            if not self.position_controller.config.ready or state.get('available') is not True:
+                self.log('Konum kontrolü hazır değil; alanı ve Windows OCR durumunu kontrol edin.')
+                return
         if active and not self.is_running:
             for group in self.sequence_groups:
                 if not group.enabled:
@@ -192,6 +200,8 @@ class RandomizedAutoClicker:
                     return
         if active and not self.is_running:
             self.sequence_runner.cancel()
+            # Close admission before waking any macro worker on startup.
+            self.position_controller.running_changed(True)
         with self.state_lock:
             previous = self.manual_enabled
             self.manual_enabled = active
@@ -215,6 +225,8 @@ class RandomizedAutoClicker:
             self.sequence_runner.cancel()
             with self.state_lock:
                 self._runtime_enabled.clear()
+        if previous and not active:
+            self.position_controller.running_changed(False)
         if previous != active:
             self._publish_state(active, reason)
         elif reason:
@@ -259,8 +271,19 @@ class RandomizedAutoClicker:
         return changed
 
     def is_config_enabled(self, config: KeyConfig) -> bool:
+        if self.position_manages_config(config):
+            return False
         with self.state_lock:
             return self._runtime_enabled.get(config.id_token, config.enabled)
+
+    def position_manages_config(self, config):
+        if not self.position_controller.config.enabled or config.key.lower().strip() not in {'w', 'a', 's', 'd'}:
+            return False
+        for group in self.sequence_groups:
+            roles, _errors = writing_layout(group)
+            if config.id_token in roles:
+                return False
+        return True
 
     def start_sequence(self, group_id: str) -> bool:
         return self.sequence_runner.start_group(group_id)
@@ -271,7 +294,7 @@ class RandomizedAutoClicker:
             return StepResult.CANCELLED
         if any(not group.enabled and macro_id in grouped_macro_ids([group]) for group in self.sequence_groups):
             return StepResult.SKIPPED
-        if worker is None or not worker.config.enabled:
+        if worker is None or not worker.config.enabled or self.position_manages_config(worker.config):
             return StepResult.SKIPPED
         with self.state_lock:
             self._runtime_enabled[macro_id] = True
@@ -449,6 +472,7 @@ class RandomizedAutoClicker:
             return
         self.stop_event.set()
         self.set_enabled(False)
+        self.position_controller.stop()
         self.sequence_runner.stop()
         with self.worker_lock:
             self._stop_workers()
@@ -528,6 +552,8 @@ class RandomizedAutoClicker:
         groups = sequence_groups_from_list(
             profiles.get("groups", {}).get(active, [])
         )
+        self.position_controller.configure(active, PositionConfig.from_dict(
+            profiles.get('positions', {}).get(active)))
         self.configure(configs, sequence_groups=groups)
 
     def run(self) -> None:

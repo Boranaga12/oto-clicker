@@ -42,6 +42,8 @@ from .sequences import (
 from .ui_widgets import DEFAULT_THEME, ScrollableFrame, PointMarker
 from .workers import MOUSE_NAMES
 from .magnifier import SelectionMagnifier
+from .position_model import PositionConfig
+from .position_ui import PositionPanel
 
 
 PIXEL_PICK_OFFSET = 8
@@ -273,6 +275,8 @@ class ClickerApp:
         self.content_split.pack(fill="both", expand=True, padx=10, pady=(5, 10))
         self.list_container = ScrollableFrame(self.content_split, background=self.bg_color)
         self.content_split.add(self.list_container, minsize=180, stretch="always")
+        self.position_panel = PositionPanel(self.list_container.scrollable_frame, self)
+        self.position_panel.pack(fill='x', padx=1, pady=(2, 7))
         
         # 4. Log Alanı (Alt)
         self.console_area = tk.Frame(
@@ -365,6 +369,9 @@ class ClickerApp:
             self.enqueue_log(f"Güncelleme kontrolü tamamlanamadı: {error}")
 
     def apply_pending_update(self) -> None:
+        panel = getattr(self, 'position_panel', None)
+        if panel is not None and (panel.selector is not None or panel.pending_center):
+            return
         if self._update_stage is None or self.clicker.is_running or self.capturing_target is not None or self._pending_pixel_pick is not None or self._pending_click_pick is not None:
             return
         stage = self._update_stage
@@ -380,6 +387,7 @@ class ClickerApp:
 
     def shutdown(self) -> None:
         self._shutting_down = True
+        self.position_panel.dispose()
         self.finish_group_drag(None)
         self.cancel_pixel_pick()
         if self._queue_job is not None:
@@ -810,6 +818,8 @@ class ClickerApp:
             self.log_text.see(tk.END)
 
     def load_active_profile_configs(self):
+        self.position_config = PositionConfig.from_dict(
+            self.profiles_data.get('positions', {}).get(self.active_profile, {}))
         configs_list = self.profiles_data["profiles"].get(self.active_profile, [])
         self.key_configs = [
             key_config_from_dict(item) for item in configs_list if isinstance(item, dict)
@@ -838,6 +848,8 @@ class ClickerApp:
         update_workers: bool = False,
         update_sequences: bool = False,
     ) -> None:
+        self.profiles_data.setdefault('positions', {})[self.active_profile] = getattr(
+            self, 'position_config', PositionConfig()).to_dict()
         self.profiles_data["profiles"][self.active_profile] = [
             key_config_to_dict(config)
             for config in self.key_configs
@@ -922,6 +934,7 @@ class ClickerApp:
                 
                 self.key_configs = []
                 self.sequence_groups = []
+                self.position_config = PositionConfig()
                 self.clicker.configure([], sequence_groups=[])
                 self.refresh_profile_combobox()
                 self.refresh_keys_list_ui()
@@ -947,7 +960,7 @@ class ClickerApp:
         self.cancel_pixel_pick()
         self.save_current_configs_to_profiles(update_workers=False)
         # Preserve profile order and both macro and group data, including writing sections.
-        for section in ("profiles", "groups"):
+        for section in ("profiles", "groups", "positions"):
             values = self.profiles_data.setdefault(section, {})
             self.profiles_data[section] = {name if key == old else key: value for key, value in values.items()}
         if old in self._profile_views:
@@ -956,6 +969,7 @@ class ClickerApp:
         self.profiles_data["active_profile"] = name
         self.save_profile_document()
         self.refresh_profile_combobox()
+        self.position_panel.set_profile(name, self.position_config)
 
     @editable_only
     def delete_profile(self):
@@ -967,6 +981,7 @@ class ClickerApp:
             self.cancel_pixel_pick()
             del self.profiles_data["profiles"][self.active_profile]
             self.profiles_data.get("groups", {}).pop(self.active_profile, None)
+            self.profiles_data.get('positions', {}).pop(self.active_profile, None)
                 
             first_key = list(self.profiles_data["profiles"].keys())[0]
             self.active_profile = first_key
@@ -1551,6 +1566,8 @@ class ClickerApp:
             current.insert(index, widget)
 
     def refresh_keys_list_ui(self):
+        if hasattr(self, 'position_panel'):
+            self.position_panel.set_profile(self.active_profile, self.position_config)
         self.finish_group_drag(None)
         canvas = self.list_container.canvas
         view = self._profile_views.get(self.active_profile)
@@ -1758,7 +1775,8 @@ class ClickerApp:
         role, label, blocked = context.get(config.id_token, (None, "Yazı açıyor", False))
         signature = (config.key, config.interval_seconds, config.random_seconds, config.enabled,
             config.screen_mode, config.pixel_x, config.pixel_y, config.target_color,
-            config.click_x, config.click_y, role, label, blocked, group.enabled if group else True)
+            config.click_x, config.click_y, role, label, blocked, group.enabled if group else True,
+            self.clicker.position_manages_config(config))
         previous = widgets["signature"]
         if signature == previous:
             return
@@ -1810,6 +1828,9 @@ class ClickerApp:
                 arrow.configure(state="disabled" if blocked else "normal")
         widgets["stripe"].configure(bg="#9580cd" if role is not None else self.accent_color)
         self.fade_widgets(widgets["card"], locked or not config.enabled, locked=locked)
+        position_managed = self.clicker.position_manages_config(config)
+        widgets['chk'].configure(text='Konum kontrolü kullanıyor' if position_managed else 'Aktif',
+                                 state='disabled' if position_managed or locked else 'normal')
         widgets["card"]._group_locked = locked
         widgets["signature"] = signature
 
@@ -2095,6 +2116,8 @@ class ClickerApp:
                 
     @editable_only
     def toggle_key_enabled(self, config: KeyConfig, var: tk.IntVar):
+        if self.clicker.position_manages_config(config):
+            return
         self.clicker.set_config_enabled(config, var.get() == 1)
         self.save_current_configs_to_profiles(update_workers=False)
         widgets = self.config_widgets.get(id(config), {})

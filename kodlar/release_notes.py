@@ -1,13 +1,21 @@
 """Curated notes bundled with the matching application release."""
 
 CURRENT_NOTES = (
+    'Her profile sabit Konum Kontrolü kartı eklendi; alan, merkez, Maks ve Min profile kaydedilir.',
+    'Karos X/Y koordinatları Windows OCR ile yerel okunur; alan seçimi canlı çerçeveyle gösterilir.',
+    'Maks mesafesi aşılınca normal makrolar bekler; kısa W ilerlemeleri ve A/D dönüşleriyle Min mesafesine dönülür.',
+    'Yazı, yürüyüşten önceliklidir; yazı sonrası güncel konum okunmadan normal makrolar devam etmez.',
+    'Konum kontrolündeki WASD kartları geçici bastırılır; yazı tuşları ve kayıtlı tercihler korunur.',
+    'Okuma kaybı, odak değişimi, engel ve süre aşımında yürüyüş tuşları bırakılır.',
+)
+
+HISTORY = (
+    ("2.1.15", (
     'Boyutlandırma imleci yalnızca kayıt panelinin ayırıcısında gösterilir.',
     'Büyüteç 335 piksele ve 13 kat yakınlaştırmaya yükseltildi.',
     'Değişmeyen büyüteç kareleri tekrar çizilmez; renk örnekleme ve görüntü dönüşümü hafifletildi.',
     'Kullanılmayan eski seçim, işaretçi sürükleme ve sıfırlama kodları temizlendi.',
-)
-
-HISTORY = (
+    )),
     ("2.1.14", (
     'Windows zamanlayıcısı erken döndüğünde tıklama aralığının kısalması düzeltildi.',
     'Beklemeler gerçek geçen süreyle hesaplanır; yazı sırasında kalan süre korunur.',

@@ -37,7 +37,30 @@ tuşu sistemi başlatıp durdurur.
 - Önceki LocalAppData ve taşınabilir sürümlerden otomatik profil göçü
 - Dönen `app.log` hata kayıtları
 
-## Sıralı gruplar
+## Karos konum kontrolü
+
+Her profilin en üstündeki karttan **Konumu Seç** ile yalnızca `67.6 77.5`
+gibi iki koordinatı çevreleyen dar bir alan çizin; alttaki ikonları dahil etmeyin.
+Esc önceki seçimi korur. Çerçeve tıklamayı engellemez ve seçimi kaldırana kadar
+görünür kalır. Ekran düzeni değişirse alanı yeniden seçin.
+
+Karakter dururken **Anlık Konumu Al** ile üç tutarlı okumadan merkez kaydedin.
+`0 ≤ Min < Maks` olacak şekilde mesafeleri ayarlayıp kartı etkinleştirin.
+İki okumada Maks aşılırsa normal makrolar durur; kısa W ilerlemeleri ve A/D
+dönüşleriyle Min mesafesine dönülür. Bu özellik engellerin etrafından yol bulmaz.
+Hareket engellenirse veya konum okunamazsa tuşlar bırakılır ve normal makrolar
+bekletilir. Sorunu giderip sistemi durdurun ve yeniden başlatın.
+
+Yazı bölümleri yürüyüşten önceliklidir; yazı bitince yeni konum doğrulanır.
+Yazı dışındaki W/A/S/D kartları geçici olarak bastırılır; kayıtlı aktiflikleri
+değişmez. Konum ayarları çalışma sırasında düzenlenemez.
+
+Okuma, tek bir gizli Windows PowerShell sürecindeki yerel Windows OCR motoruyla
+yapılır. Ek Python paketi veya bulut servisi kullanılmaz. Windows OCR dili yoksa
+kart açıklamayla pasif kalır; Windows dil ayarlarından OCR destekli bir dil
+kurulmalıdır. Görüntüler diske veya ağa gönderilmez.
+
+## Sıralı grupların kullanımı
 
 1. `+ Grup` ile bir ana grup oluşturun.
 2. Grubun `+ Tuş` düğmesiyle adımları ekleyin. Gruba grup eklenmez.
