@@ -46,6 +46,7 @@ using System.Drawing.Imaging;
 using System.Drawing.Drawing2D;
 using System.IO;
 using System.Runtime.InteropServices;
+using System.Collections.Generic;
 public static class CoordinateFrames {
  public static string[] Make(int x, int y, int w, int h, string image) {
   using (Bitmap source = new Bitmap(w,h,PixelFormat.Format32bppArgb)) {
@@ -54,6 +55,11 @@ public static class CoordinateFrames {
     else using (MemoryStream stream = new MemoryStream(Convert.FromBase64String(image)))
      using (Bitmap input = new Bitmap(stream)) g.DrawImage(input,new Rectangle(0,0,w,h),new Rectangle(x,y,w,h),GraphicsUnit.Pixel);
    }
+   List<string> frames = new List<string>();
+   frames.Add(Encode(source, false, 4, false));
+   frames.Add(Encode(source, false, 4, true));
+   frames.Add(Encode(source, false, 8, true));
+   foreach(int threshold in new int[]{125,165,200})
    using (Bitmap mask = new Bitmap(w,h,PixelFormat.Format32bppArgb)) {
     Rectangle rect = new Rectangle(0,0,w,h);
     BitmapData src = source.LockBits(rect,ImageLockMode.ReadOnly,PixelFormat.Format32bppArgb);
@@ -62,22 +68,23 @@ public static class CoordinateFrames {
     for(int i=0;i<data.Length;i+=4) {
      int hi=Math.Max(data[i],Math.Max(data[i+1],data[i+2]));
      int lo=Math.Min(data[i],Math.Min(data[i+1],data[i+2]));
-     byte value=(byte)(lo>=165 && hi-lo<=65 ? 0 : 255);
+     byte value=(byte)(lo>=threshold && hi-lo<=65 ? 0 : 255);
      data[i]=data[i+1]=data[i+2]=value; data[i+3]=255;
     }
     BitmapData dst=mask.LockBits(rect,ImageLockMode.WriteOnly,PixelFormat.Format32bppArgb);
     try { Marshal.Copy(data,0,dst.Scan0,data.Length); } finally { mask.UnlockBits(dst); }
-    return new string[]{Encode(source, false),Encode(mask, true)};
+    frames.Add(Encode(mask, true, 4, true));
    }
+   return frames.ToArray();
   }
  }
- static string Encode(Bitmap source, bool mask) {
-  using(Bitmap scaled=new Bitmap(source.Width*4+32,source.Height*4+32,PixelFormat.Format32bppArgb)) {
+ static string Encode(Bitmap source, bool mask, int scale, bool smooth) {
+  using(Bitmap scaled=new Bitmap(source.Width*scale+32,source.Height*scale+32,PixelFormat.Format32bppArgb)) {
    using(Graphics g=Graphics.FromImage(scaled)) {
     g.Clear(mask ? Color.White : Color.Black);
-    g.InterpolationMode=mask ? InterpolationMode.NearestNeighbor : InterpolationMode.HighQualityBicubic;
+    g.InterpolationMode=smooth ? InterpolationMode.HighQualityBicubic : InterpolationMode.NearestNeighbor;
     g.PixelOffsetMode=PixelOffsetMode.Half;
-    g.DrawImage(source,new Rectangle(16,16,source.Width*4,source.Height*4));
+    g.DrawImage(source,new Rectangle(16,16,source.Width*scale,source.Height*scale));
    }
    using(MemoryStream stream=new MemoryStream()) {
     scaled.Save(stream,ImageFormat.Png); return Convert.ToBase64String(stream.ToArray());
@@ -178,8 +185,13 @@ class CoordinateOCR:
                 self.last_texts = response.get('texts', [])
                 points = [parse_coordinates(text) for text in self.last_texts]
                 valid = [point for point in points if point is not None]
-                # Different successful parses disagree: never guess which is correct.
-                return valid[0] if valid and all(p == valid[0] for p in valid) else None
+                # A single plausible OCR result is not sufficient for movement.
+                # Independently prepared frames must agree on both decimals.
+                if not valid:
+                    return None
+                winner = max(set(valid), key=valid.count)
+                votes = valid.count(winner)
+                return winner if votes >= 2 and votes/len(valid) >= 2/3 else None
             except Exception:
                 self.close()
                 raise
