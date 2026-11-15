@@ -1,6 +1,7 @@
 """Curated notes bundled with the matching application release."""
 
 CURRENT_NOTES = (
+    'Başka bilgisayarın ekran düzenine ait alanda merkez kaydetmeye çalışıldığında yeniden seçim gerektiği hemen açıklanır.',
     'Yavaş bilgisayarlarda merkez doğrulamasının sürekli sıfırlanması düzeltildi; bekleme süresi ve 0/3 ilerleme göstergesi eklendi.',
     'OCR, sonraki okumalarda yalnızca seçilen görüntü hazırlamalarını üretir; gereksiz büyütme ve PNG dönüşümleri azaltıldı.',
     'Yalnızca Tab kartlarına ayarlanabilir Tab yenilenme süresi eklendi; varsayılan 4 saniye ve duraklama öncelikleri korunur.',
@@ -12,6 +13,9 @@ CURRENT_NOTES = (
 )
 
 HISTORY = (
+    ("2.3.1", (
+        'Konum kartının etkinleştirilmesi, yavaş bilgisayarda merkez doğrulaması ve Tab yenilenme süresi düzeltildi.',
+    )),
     ("2.3.0", (
     'Alan seçme, kaldırma ve merkez güncelleme artık konum kartının Aktif tercihini sıfırlamaz.',
     'Sabit koordinat panellerinde yazı satırı otomatik ayrılır; geniş seçim ve başlıklar için OCR iyileştirildi.',

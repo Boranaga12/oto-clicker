@@ -254,6 +254,10 @@ class PositionPanel(tk.Frame):
     def take_center(self):
         if self.engine.is_running or not self.model.region or self.pending_center:
             return
+        if (self.model.display != screen_bounds() or
+                (self.model.monitors is not None and self.model.monitors != monitor_layout())):
+            self.error_label.configure(text='Bu bilgisayarın ekran düzeni farklı; önce Konumu Seç ile alanı yeniden seçin.')
+            return
         self.pending_center = True
         self.error_label.configure(text='')
         self.status.configure(text='Karakteri sabit tutun; üç tutarlı okuma bekleniyor…')

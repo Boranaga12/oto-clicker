@@ -137,6 +137,19 @@ class InteractionPolishTests(unittest.TestCase):
             persist.assert_called_once()
         self.assertTrue(model.enabled)
 
+    def test_center_capture_explains_a_profile_from_another_display(self):
+        panel = self.app.position_panel
+        panel.model.enabled = True
+        panel.model.region = (10, 20, 90, 20)
+        panel.model.display = (0, 0, 9999, 9999)
+        with patch('kodlar.position_ui.screen_bounds', return_value=(0, 0, 1920, 1080)), \
+             patch.object(self.engine.position_controller, 'request_center') as request:
+            panel.take_center()
+            request.assert_not_called()
+        self.assertFalse(panel.pending_center)
+        self.assertTrue(panel.model.enabled)
+        self.assertIn('Konumu Seç', panel.error_label.cget('text'))
+
     def test_log_panel_height_is_saved_and_does_not_hide_list(self):
         height = self.app.content_split.winfo_height()
         self.app.content_split.sash_place(0, 0, height-157)
