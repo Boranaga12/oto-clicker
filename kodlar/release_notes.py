@@ -1,6 +1,14 @@
 """Curated notes bundled with the matching application release."""
 
 CURRENT_NOTES = (
+    'Uygulama açıkken dakikada bir güncelleme kontrol edilir; yeni sürüm bulunduğunda üstte büyük GÜNCELLEME VAR düğmesi görünür.',
+    'Yeni sürüm arka planda indirilip doğrulanır; kurulum düğmeye basılana kadar bekler.',
+    'Güncelleme düğmesi makrolar çalışırken de kullanılabilir; makrolar durdurulur, ayarlar kaydedilir ve uygulama yeni sürümle yeniden açılır.',
+    'İndirme hatasında yeniden deneme desteklenir; paket bildirilen sürümden indirilerek sürümler arası indirme karışıklığı önlenir.',
+)
+
+HISTORY = (
+    ("2.5.2", (
     'Elle hareket eden karakterin doğru koordinatları sabitlik filtresine takılmaz; durağanlık yalnızca merkez kaydı için gerekir.',
     'Yazı arası, engel kanıtı olarak biriktirilmez; yazıdan sonra kesintisiz hareket ölçümü yeniden başlar.',
     'Koordinatlar rakam rakam, yazı şekilleri ve gerçek ondalık noktalarıyla okunur; 3/6/8 ayrımı için özel sayısal tanıyıcı eklendi.',
@@ -9,9 +17,7 @@ CURRENT_NOTES = (
     'Yazı W’yi geçici bırakır; yazı bitince dönüş kilidi yeni OCR beklemeden yürüyüşe devam edebilir.',
     'Süreye ve uzaklığın azalmamasına dayalı erken durdurmalar kaldırıldı; odak kaybı ve Durdur tuş bırakmaya devam eder.',
     'Engel kontrolü, dönüşsüz ve kesintisiz güvenilir ölçümlerde gerçek yer değiştirme olmamasını doğrular; hatalı sapmalar azaltıldı.',
-)
-
-HISTORY = (
+    )),
     ("2.5.1", (
         'Yazı aralarının eski engel ölçümlerini tamamlaması engellendi.',
     )),

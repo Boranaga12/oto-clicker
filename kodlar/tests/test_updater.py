@@ -5,6 +5,7 @@ import io
 import json
 import os
 import tempfile
+import threading
 import unittest
 import zipfile
 from pathlib import Path
@@ -57,6 +58,23 @@ class UpdateTests(unittest.TestCase):
         with patch.object(updater, 'fetch', return_value=b'{"version":"2.1.1"}') as fetch:
             self.assertIsNone(updater.prepare_update(Path('.'), '2.1.1', Path('unused')))
             fetch.assert_called_once_with('update.json')
+
+    def test_banner_notification_precedes_version_pinned_download(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = self.installed(directory)
+            archive = self.package()
+            events = []
+            manifest = json.dumps({'version': '2.1.2', 'sha256': hashlib.sha256(archive).hexdigest()}).encode()
+
+            def fetch(name, **options):
+                events.append((name, options))
+                return manifest if name == 'update.json' else archive
+
+            with patch.object(updater, 'fetch', side_effect=fetch):
+                updater.prepare_update(root, '2.1.1', Path(directory)/'cache',
+                                       on_available=lambda version: events.append(('available', version)))
+            self.assertEqual(events, [('update.json', {}), ('available', '2.1.2'),
+                                      ('arik-makro.zip', {'version': '2.1.2'})])
 
     def test_tampered_archive_is_rejected_before_writes(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -114,6 +132,97 @@ class UpdateTests(unittest.TestCase):
             app.apply_pending_update()
             launch.assert_not_called()
         self.assertEqual(app._update_stage, Path('staged'))
+
+
+class UpdateMonitorTests(unittest.TestCase):
+    def monitor(self, notify=lambda event: None):
+        monitor = updater.UpdateMonitor(Path('.'), '2.5.2', Path('unused'), notify, interval=0.01)
+        self.addCleanup(lambda: monitor.thread.join(2) if monitor.thread else None)
+        self.addCleanup(monitor.stop)
+        return monitor
+
+    def test_checks_repeatedly_without_reopening_application(self):
+        monitor = self.monitor()
+        checked = threading.Event()
+        calls = []
+
+        def prepare(*args, **kwargs):
+            calls.append(args[1])
+            if len(calls) >= 3:
+                monitor.stop()
+                checked.set()
+
+        with patch.object(updater, 'prepare_update', side_effect=prepare):
+            monitor.start()
+            first_thread = monitor.thread
+            monitor.start()
+            self.assertIs(monitor.thread, first_thread)
+            self.assertTrue(checked.wait(2))
+            monitor.thread.join(2)
+        self.assertEqual(calls, ['2.5.2'] * 3)
+
+    def test_ready_release_is_not_downloaded_again_at_next_poll(self):
+        events, baselines = [], []
+        monitor = self.monitor(events.append)
+        checked = threading.Event()
+
+        def prepare(install, baseline, cache, *, on_available):
+            baselines.append(baseline)
+            if len(baselines) == 1:
+                on_available('2.6.0')
+                return Path('prepared')
+            monitor.stop()
+            checked.set()
+
+        with patch.object(updater, 'prepare_update', side_effect=prepare):
+            monitor.start()
+            self.assertTrue(checked.wait(2))
+            monitor.thread.join(2)
+        self.assertEqual(baselines, ['2.5.2', '2.6.0'])
+        self.assertEqual(events, [('update_available', '2.6.0'),
+                                  ('update_ready', ('2.6.0', Path('prepared')))])
+
+    def test_shutdown_discards_late_network_results(self):
+        events = []
+        monitor = self.monitor(events.append)
+        entered, release = threading.Event(), threading.Event()
+        self.addCleanup(release.set)
+
+        def prepare(*args, on_available, **kwargs):
+            entered.set()
+            release.wait(2)
+            on_available('2.6.0')
+            return Path('prepared')
+
+        with patch.object(updater, 'prepare_update', side_effect=prepare):
+            monitor.start()
+            self.assertTrue(entered.wait(2))
+            monitor.stop()
+            release.set()
+            monitor.thread.join(2)
+        self.assertEqual(events, [])
+
+    def test_network_failure_does_not_stop_later_checks(self):
+        events = []
+        monitor = self.monitor(events.append)
+        checked = threading.Event()
+        attempts = []
+
+        def prepare(*args, on_available, **kwargs):
+            attempts.append(1)
+            if len(attempts) == 1:
+                raise OSError('offline')
+            on_available('2.6.0')
+            checked.set()
+            return Path('prepared')
+
+        with patch.object(updater, 'prepare_update', side_effect=prepare):
+            monitor.start()
+            self.assertTrue(checked.wait(2))
+            monitor.stop()
+            monitor.thread.join(2)
+        self.assertEqual(events[0], ('update_failed', 'offline'))
+        self.assertIn(('update_available', '2.6.0'), events)
 
 
 if __name__ == '__main__':

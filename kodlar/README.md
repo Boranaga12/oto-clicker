@@ -161,9 +161,14 @@ ESC olur. Profil kurtarma yedeği de boşaltılır.
 
 ## Güncellemeler
 
-Windows ZIP kurulumu açılışta GitHub Releases üzerindeki en son sürümü kontrol eder.
-Yeni paket HTTPS üzerinden indirilir ve SHA-256 özeti doğrulanır. Ana sistem
-pasifken otomatik uygulanır ve uygulama yeniden açılır; çalışan makrolar kesilmez.
+Windows ZIP kurulumu açılışta ve uygulama açıkken dakikada bir GitHub Releases
+üzerindeki en son sürümü kontrol eder. Yeni sürüm bulunduğunda üstte büyük
+`GÜNCELLEME VAR` düğmesi görünür. Paket arka planda HTTPS üzerinden indirilir ve
+SHA-256 özeti doğrulanır; kendiliğinden kurulmaz. Düğmeye basılınca makrolar
+durdurulur, ayarlar kaydedilir ve uygulama güncellenip yeniden açılır. İndirme
+bitmeden basılırsa kurulum indirme tamamlanınca başlar. Hata olursa aynı düğmeyle
+yeniden denenebilir. Bu davranış 2.6.0 ve sonrasındaki sürümlerde bulunur;
+önceki sürümün açık oturumuna eklenmesi için önce bir kez güncelleme gerekir.
 Profiller, ayarlar ve sanal ortam korunur. İnternet yoksa uygulama çalışmaya devam eder.
 Bağımlılıklar değişmişse normal ZIP kurulumu gerekir; durum kayıtlarda belirtilir.
 Git çalışma kopyalarında otomatik dosya değiştirme kapalıdır.
@@ -171,8 +176,8 @@ Git çalışma kopyalarında otomatik dosya değiştirme kapalıdır.
 Profil işlemleri profil satırındaki `⋯` menüsündedir. Gruplar yalnızca ana
 `BAŞLAT` ile başlatılır; her kök grup kendi iç sırasını yürütür.
 
-`main` dalına gönderilen değişiklikler GitHub Actions ile `2.1.<çalışma numarası>`
-sürümü olarak yayımlanır. İndirilecek dosya Releases içindeki `arik-makro.zip`tir.
+`main` dalına gönderilen değişiklikler GitHub Actions ile uygulamanın kayıtlı
+sürüm numarasıyla yayımlanır. İndirilecek dosya Releases içindeki `arik-makro.zip`tir.
 İlk otomatik güncellemeli sürüm bir kez elle kurulmalıdır. Actions ve yayınlama
 izinlerinin GitHub üzerinde etkin olması gerekir.
 

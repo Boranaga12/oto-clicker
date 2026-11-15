@@ -16,7 +16,7 @@ from tkinter import messagebox, simpledialog
 
 from . import __version__
 from .app_paths import data_directory
-from .updater import prepare_update, schedule_install
+from .updater import UpdateMonitor, schedule_install
 from .release_notes import CURRENT_NOTES, HISTORY
 from .config import save_config
 from .engine import RandomizedAutoClicker
@@ -88,6 +88,10 @@ class ClickerApp:
         self._queue_job: str | None = None
         self._shutting_down = False
         self._update_stage: Path | None = None
+        self._update_version = None
+        self._update_requested = False
+        self._update_installing = False
+        self._update_monitor = None
         self._locked_widget_states = {}
         self._locked_menu_states = {}
         self._capture_overlay = None
@@ -201,6 +205,14 @@ class ClickerApp:
             font=("Segoe UI", 8), command=self.toggle_topmost
         )
         self.chk_topmost.pack(side="right", padx=(0, 10))
+
+        self.update_button = tk.Button(self.header_frame, text='GÜNCELLEME VAR',
+            font=('Segoe UI', 16, 'bold'), bg='#ed9b25', fg='#111827',
+            activebackground='#ffb642', activeforeground='#111827',
+            disabledforeground='#111827', bd=0, pady=10, cursor='hand2',
+            command=self.request_update_install)
+        self.update_status = tk.Label(self.header_frame, bg=self.card_color,
+            fg=self.text_primary, font=('Segoe UI', 8), wraplength=420)
         
         # 2. Profil Secim Alani
         self.profile_frame = tk.Frame(
@@ -318,7 +330,8 @@ class ClickerApp:
         self.update_running_ui(self.clicker.enabled_event.is_set())
         install = Path(__file__).resolve().parent.parent
         if os.name == "nt" and not (install / ".git").exists():
-            threading.Thread(target=self.check_for_update, name="update-check", daemon=True).start()
+            self._update_monitor = UpdateMonitor(install, __version__, data_directory()/'updates', self.log_queue.put)
+            self._update_monitor.start()
 
     def show_release_notes(self) -> None:
         existing = getattr(self, "_notes_window", None)
@@ -359,36 +372,60 @@ class ClickerApp:
             text.insert("end", "\n")
         text.configure(state="disabled")
 
-    def check_for_update(self) -> None:
-        try:
-            stage = prepare_update(
-                Path(__file__).resolve().parent.parent,
-                __version__, data_directory() / "updates",
-            )
-            if stage:
-                self.log_queue.put(("update_ready", stage))
-        except Exception as error:
-            self.enqueue_log(f"Güncelleme kontrolü tamamlanamadı: {error}")
+    def show_update_banner(self, status):
+        self.update_button.configure(state='disabled' if self._update_requested or self._update_installing else 'normal')
+        self.update_status.configure(text=status)
+        self.update_button.pack(fill='x', pady=(8, 0))
+        self.update_status.pack(fill='x', pady=(3, 0))
+
+    def request_update_install(self):
+        if self._shutting_down or self._update_installing:
+            return
+        self._update_requested = True
+        self.show_update_banner('Güncelleme hazırlanıyor; uygulama yeniden açılacak…')
+        if self._update_stage is None:
+            if self._update_monitor is not None:
+                self._update_monitor.request_check(retry=True)
+            return
+        self.apply_pending_update()
+
+    def close_for_update(self):
+        self.root.tk.call(self.root.protocol('WM_DELETE_WINDOW'))
 
     def apply_pending_update(self) -> None:
-        panel = getattr(self, 'position_panel', None)
-        if panel is not None and (panel.selector is not None or panel.pending_center):
+        if (not getattr(self, '_update_requested', False) or self._update_stage is None
+                or self._shutting_down or self._update_installing):
             return
-        if self._update_stage is None or self.clicker.is_running or self.capturing_target is not None or self._pending_pixel_pick is not None or self._pending_click_pick is not None:
+        if not (self._update_stage/'payload').is_dir():
+            self._update_stage = None
+            if self._update_monitor is not None:
+                self._update_monitor.request_check(retry=True)
             return
         stage = self._update_stage
-        self._update_stage = None
+        self._update_installing = True
+        self.show_update_banner('Makrolar durduruluyor; güncelleme yüklenip uygulama yeniden açılacak…')
         try:
+            self.clicker.set_enabled(False)
+            self.position_panel.cancel_selection()
+            self.position_panel.pending_center = False
+            self.finish_group_drag(None)
+            self.cancel_pixel_pick()
+            self.clicker.capturing_callback = None
+            self.capturing_target = None
             self.save_current_configs_to_profiles(update_workers=False)
             schedule_install(stage, Path(__file__).resolve().parent.parent)
         except Exception as error:
+            self._update_installing = self._update_requested = False
+            self.show_update_banner('Güncelleme başlatılamadı. Yeniden denemek için düğmeye basın.')
             self.enqueue_log(f"Güncelleme başlatılamadı: {error}")
             return
-        # Use the regular close path to release input hooks and the instance mutex.
-        self.root.tk.call(self.root.protocol("WM_DELETE_WINDOW"))
+        self._update_stage = None
+        self.close_for_update()
 
     def shutdown(self) -> None:
         self._shutting_down = True
+        if self._update_monitor is not None:
+            self._update_monitor.stop()
         self.position_panel.dispose()
         self.finish_group_drag(None)
         self.cancel_pixel_pick()
@@ -604,9 +641,19 @@ class ClickerApp:
             processed = 0
             while processed < 200:
                 msg_type, data = self.log_queue.get_nowait()
-                if msg_type == "update_ready":
-                    self._update_stage = data
-                    self.append_log_to_widget("Yeni sürüm hazır; makrolar durduğunda otomatik yüklenecek.")
+                if msg_type == 'update_available':
+                    self._update_version = data
+                    self._update_stage = None
+                    self.show_update_banner(f'Yeni sürüm {data} bulundu; indirme arka planda hazırlanıyor.')
+                elif msg_type == "update_ready":
+                    self._update_version, self._update_stage = data
+                    self.show_update_banner(f'Yeni sürüm {self._update_version} hazır. Güncelleyip yeniden açmak için tıklayın.')
+                    self.append_log_to_widget('Yeni sürüm hazır; GÜNCELLEME VAR düğmesine basarak yükleyebilirsiniz.')
+                elif msg_type == 'update_failed':
+                    self._update_requested = False
+                    if self._update_version is not None:
+                        self.show_update_banner('Güncelleme indirilemedi. Yeniden denemek için düğmeye basın.')
+                    self.append_log_to_widget('Güncelleme kontrolü tamamlanamadı: '+str(data))
                 elif msg_type == "log":
                     self.append_log_to_widget(data)
                 elif msg_type == "state":

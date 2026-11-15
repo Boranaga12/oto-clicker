@@ -9,6 +9,8 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import threading
+import time
 import urllib.error
 import urllib.request
 import zipfile
@@ -25,8 +27,12 @@ def version_number(value: str) -> tuple[int, ...]:
     return tuple(map(int, value.split('.')))
 
 
-def fetch(name: str) -> bytes:
-    request = urllib.request.Request(RELEASE_URL + name, headers={'User-Agent': 'ArikMakro-Updater'})
+def fetch(name: str, *, version: str | None = None) -> bytes:
+    base = RELEASE_URL if version is None else RELEASE_URL.replace('latest/download/', f'download/v{version}/')
+    url = base+name
+    if name == 'update.json':
+        url += '?check='+str(time.time_ns())
+    request = urllib.request.Request(url, headers={'User-Agent': 'ArikMakro-Updater', 'Cache-Control': 'no-cache'})
     with urllib.request.urlopen(request, timeout=20) as response:
         data = response.read(MAX_BYTES + 1)
     if len(data) > MAX_BYTES:
@@ -76,7 +82,7 @@ def unpack(archive: Path, destination: Path) -> None:
             raise ValueError(f'Eksik güncelleme dosyası: {required}')
 
 
-def prepare_update(install: Path, current_version: str, cache: Path) -> Path | None:
+def prepare_update(install: Path, current_version: str, cache: Path, *, on_available=None) -> Path | None:
     try:
         manifest = json.loads(fetch('update.json'))
     except urllib.error.HTTPError as error:
@@ -89,7 +95,10 @@ def prepare_update(install: Path, current_version: str, cache: Path) -> Path | N
     checksum = manifest['sha256']
     if not re.fullmatch(r'[0-9a-f]{64}', checksum):
         raise ValueError('Güncelleme özeti geçersiz')
-    data = fetch('arik-makro.zip')
+    if on_available is not None:
+        on_available(version)
+    # Pin the archive to its manifest: a newer release may appear mid-download.
+    data = fetch('arik-makro.zip', version=version)
     if hashlib.sha256(data).hexdigest() != checksum:
         raise ValueError('Güncellemenin SHA-256 doğrulaması başarısız')
     cache.mkdir(parents=True, exist_ok=True)
@@ -108,6 +117,58 @@ def prepare_update(install: Path, current_version: str, cache: Path) -> Path | N
     except Exception:
         shutil.rmtree(stage)
         raise
+
+
+class UpdateMonitor:
+    """Single background checker; all UI interaction is queued by notify."""
+    def __init__(self, install, current_version, cache, notify, *, interval=60):
+        self.install, self.current_version, self.cache = install, current_version, cache
+        self.notify = notify
+        self.interval = interval
+        self.prepared_version = current_version
+        self.closed = threading.Event()
+        self.wake = threading.Event()
+        self.lock = threading.RLock()
+        self.thread = None
+
+    def start(self):
+        with self.lock:
+            if self.thread is None and not self.closed.is_set():
+                self.thread = threading.Thread(target=self.run, name='update-monitor', daemon=True)
+                self.thread.start()
+
+    def request_check(self, *, retry=False):
+        with self.lock:
+            if retry:
+                self.prepared_version = self.current_version
+        self.wake.set()
+
+    def emit(self, kind, data):
+        if not self.closed.is_set():
+            self.notify((kind, data))
+
+    def run(self):
+        while not self.closed.is_set():
+            with self.lock:
+                baseline = self.prepared_version
+            available = [baseline]
+            def discovered(version):
+                available[0] = version
+                self.emit('update_available', version)
+            try:
+                stage = prepare_update(self.install, baseline, self.cache, on_available=discovered)
+                if stage is not None and not self.closed.is_set():
+                    with self.lock:
+                        self.prepared_version = available[0]
+                    self.emit('update_ready', (available[0], stage))
+            except Exception as error:
+                self.emit('update_failed', str(error))
+            self.wake.wait(self.interval)
+            self.wake.clear()
+
+    def stop(self):
+        self.closed.set()
+        self.wake.set()
 
 
 def install_payload(stage: Path, install: Path) -> None:
@@ -177,7 +238,8 @@ def apply_after_exit(stage: Path, install: Path, pid: int) -> None:
         error_message = f'Güncelleme yüklenemedi:\n{error}'
     if error_message:
         ctypes.windll.user32.MessageBoxW(None, error_message, 'Arık Makro', 0x10)
-    subprocess.Popen([sys.executable, '-m', 'kodlar.launcher'], cwd=install)
+    subprocess.Popen([sys.executable, '-m', 'kodlar.launcher'], cwd=install,
+                     creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
     if not error_message:
         shutil.rmtree(stage, ignore_errors=True)
 
