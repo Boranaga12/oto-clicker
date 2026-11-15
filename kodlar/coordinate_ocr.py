@@ -292,14 +292,15 @@ class CoordinateOCR:
                     self.preferred = [0, 1]
                     return primary
                 valid = [point for point in points if point is not None]
-                # A single plausible OCR result is not sufficient for movement.
-                # Independently prepared frames must agree on both decimals.
+                # Incomplete frames are not contradictory measurements. Every
+                # complete parse must agree; temporal validation remains in the
+                # controller before a center is saved or movement can start.
                 if not valid:
                     self.preferred = None
                     return None
                 winner = max(set(valid), key=valid.count)
                 votes = valid.count(winner)
-                if votes >= 2 and votes/len(valid) >= 2/3:
+                if votes == len(valid):
                     fallback = [index for index, point in indexed.items() if point == winner][:2]
                     self.preferred = list(dict.fromkeys([0, 1, *fallback]))
                     return winner

@@ -220,12 +220,12 @@ class ClickerApp:
         self.profile_menu.configure(width=14)
 
         self.panic_btn = tk.Button(
-            self.profile_frame, text=self.clicker.app_config.panic_key.upper(), font=("Segoe UI", 8, "bold"),
+            top_row, text=self.clicker.app_config.panic_key.upper(), font=("Segoe UI", 8, "bold"),
             bg=self.input_bg, fg=self.text_primary, bd=0, activebackground=self.border_color,
             activeforeground="white", padx=8, pady=2,
             command=lambda: self.start_key_capture("panic", None, self.panic_btn)
         )
-        self.panic_btn.pack(side="left", padx=8)
+        self.panic_btn.pack(side="right", before=self.chk_topmost, padx=(0, 6))
 
 
         

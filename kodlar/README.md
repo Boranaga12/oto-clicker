@@ -40,7 +40,8 @@ tuşu sistemi başlatıp durdurur.
 ## Karos konum kontrolü
 
 Her profilin en üstündeki karttan **Konumu Seç** ile yalnızca `67.6 77.5`
-gibi iki koordinatı çevreleyen dar bir alan çizin; alttaki ikonları dahil etmeyin.
+gibi iki koordinatı veya sabit zemindeki `71.9 / 57.2` satırını çevreleyen dar
+bir alan çizin; alttaki ikonları dahil etmeyin. Her iki gösterge aynı kartla okunur.
 Esc önceki seçimi korur. Çerçeve tıklamayı engellemez ve seçimi kaldırana kadar
 görünür kalır. Ekran düzeni değişirse alanı yeniden seçin.
 

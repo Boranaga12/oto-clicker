@@ -67,6 +67,11 @@ class InteractionPolishTests(unittest.TestCase):
         self.assertEqual(panel.select.cget('state'), 'normal')
         self.assertEqual(self.app.content_split.cget('sashcursor'), 'arrow')
 
+    def test_hotkey_assigner_is_between_topmost_and_start(self):
+        self.assertEqual(self.app.panic_btn.master, self.app.status_badge.master)
+        self.assertGreater(self.app.panic_btn.winfo_x(), self.app.chk_topmost.winfo_x())
+        self.assertLess(self.app.panic_btn.winfo_x(), self.app.status_badge.winfo_x())
+
     def test_log_panel_height_is_saved_and_does_not_hide_list(self):
         height = self.app.content_split.winfo_height()
         self.app.content_split.sash_place(0, 0, height-157)

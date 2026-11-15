@@ -1,6 +1,8 @@
 """Curated notes bundled with the matching application release."""
 
 CURRENT_NOTES = (
+    'Koordinatlar hem oyun üzerindeki X/Y yazısından hem de sabit zemindeki X / Y göstergesinden seçilebilir.',
+    'Başlatma kısayolu atayıcısı üstte, Üstte seçeneği ile Başlat düğmesi arasına taşındı.',
     'Aç/kapa tuşuna atanmış makro sistemi durdurur; izlemesi yalnızca seçilen renk bulununca çalışır.',
     'İzlenen Tab dört etkin saniye basılmadığında bir yedek basış yapar; yazı ve yürüyüş süreleri sayılmaz.',
     'Takılı kalabilen dikey ayırıcı imleci kaldırıldı; kayıt paneli sürüklenebilir kalır.',
