@@ -144,6 +144,7 @@ class PositionPriorityTests(unittest.TestCase):
 
     def test_writing_end_keeps_normal_input_blocked_until_new_position(self):
         controller = self.controller()
+        controller.gate.navigation_active = True
         old = time.monotonic()
         with controller.gate.exclusive(lambda: False) as admitted:
             self.assertTrue(admitted)
@@ -162,34 +163,35 @@ class PositionPriorityTests(unittest.TestCase):
         controller.allow_normal(1, time.monotonic()-2)
         self.assertFalse(controller.gate.allowed())
 
-    def test_expired_measurement_closes_previously_open_gate(self):
+    def test_expired_measurement_alone_does_not_close_normal_gate(self):
         controller = self.controller()
         self.assertTrue(controller.gate.allowed())
         controller.gate.position_valid_until = time.monotonic()-1
+        self.assertTrue(controller.gate.allowed())
+
+    def test_ocr_loss_releases_normal_macros_and_preserves_return_intent(self):
+        controller = self.controller()
+        controller.target = 100
+        controller.returning = True
+        controller.filter.accept((11, 0), time.monotonic())
+        controller.gate.set_position_blocked(True)
+        controller.missing_reading(1)
+        self.assertTrue(controller.gate.allowed())
+        self.assertTrue(controller.returning)
+        controller.motion.drive.assert_not_called()
+        controller.motion.halt.assert_called()
+
+    def test_read_loss_never_unblocks_normal_keys_before_movement_key_up(self):
+        controller = self.controller()
+        controller.target = 100
+        controller.returning = True
+        controller.motion.holding = True
+        controller.gate.set_position_blocked(True)
+        controller.missing_reading(1)
         self.assertFalse(controller.gate.allowed())
-
-    def test_short_ocr_gap_predicts_without_releasing_normal_macros(self):
-        controller = self.controller()
-        controller.target = 100
-        controller.returning = True
-        controller.filter.accept((11, 0), time.monotonic())
-        with patch('kodlar.position_controller.foreground_window', return_value=100):
-            self.assertTrue(controller.continue_estimate(1))
-            self.assertFalse(controller.gate.allowed())
-            controller.continue_estimate(1)
-            controller.continue_estimate(1)
-            self.assertTrue(controller.continue_estimate(1))
-        self.assertGreaterEqual(controller.motion.drive.call_count, 4)
-
-    def test_prediction_expires_and_cannot_cross_writing_barrier(self):
-        controller = self.controller()
-        controller.target = 100
-        controller.returning = True
-        controller.filter.accept((11, 0), time.monotonic()-controller.READ_GRACE-1)
-        self.assertFalse(controller.continue_estimate(1))
-        controller.filter.accept((11, 0), time.monotonic())
-        controller.gate.position_epoch = time.monotonic()+1
-        self.assertFalse(controller.continue_estimate(1))
+        controller.motion.holding = False
+        controller.motion_released(1)
+        self.assertTrue(controller.gate.allowed())
         controller.motion.drive.assert_not_called()
 
     def test_stop_cancels_walking_without_releasing_unowned_keys(self):
@@ -323,14 +325,14 @@ class PositionPriorityTests(unittest.TestCase):
 
 
 class PositionEngineTests(unittest.TestCase):
-    def test_enabled_but_incomplete_position_cannot_start_the_engine(self):
+    def test_enabled_but_unreadable_position_does_not_prevent_normal_macros(self):
         with patch('kodlar.engine.Controller'), patch('kodlar.engine.keyboard.Controller'):
             engine = RandomizedAutoClicker(AppConfig())
         try:
             engine.position_controller.config = PositionConfig(enabled=True)
             engine.position_controller.snapshot['available'] = True
             engine.set_enabled(True)
-            self.assertFalse(engine.is_running)
+            self.assertTrue(engine.is_running)
             self.assertTrue(engine.position_controller.config.enabled)
         finally:
             engine.stop()
@@ -347,6 +349,7 @@ class PositionEngineTests(unittest.TestCase):
                 children=[SequenceItem('macro', macro_id=c.id_token) for c in (opening, body, closing)],
                 writing_blocks=[WritingBlock(opening.id_token, closing.id_token)])]
             engine.position_controller.config.enabled = True
+            engine.position_controller.reading_lost = False
             self.assertFalse(engine.is_config_enabled(standalone))
             self.assertTrue(standalone.enabled)
             self.assertFalse(engine.position_manages_config(body))
@@ -373,6 +376,28 @@ class KarosScreenshotOCRTests(unittest.TestCase):
     def tearDownClass(cls):
         cls.reader.close()
 
+    def test_live_layered_coordinate_window_is_captured(self):
+        import tkinter as tk
+        import gc
+        from kodlar.platform_win import flush_desktop
+        root = tk.Tk()
+        try:
+            root.overrideredirect(True)
+            root.attributes('-topmost', True)
+            root.attributes('-alpha', .95)
+            root.geometry('240x70+40+40')
+            root.configure(bg='#333333')
+            tk.Label(root, text='77.0 / 56.2', bg='#333333', fg='#eeeeee',
+                     font=('Segoe UI', 16)).pack(expand=True)
+            root.update()
+            flush_desktop()
+            point = self.reader.read((40, 40, 240, 70))
+            self.assertEqual(point, (77.0, 56.2), repr(self.reader.last_texts))
+        finally:
+            root.destroy()
+            root = None
+            gc.collect()
+
     def test_provided_karos_screenshots(self):
         fixtures = Path(__file__).with_name('fixtures')
         for name, region, expected in (
@@ -383,6 +408,8 @@ class KarosScreenshotOCRTests(unittest.TestCase):
             ('karos-stable.png', (33, 33, 96, 23), (71.9, 57.2)),
             ('karos-stable.png', (24, 29, 112, 32), (71.9, 57.2)),
             ('karos-stable.png', (0, 0, 148, 86), (71.9, 57.2)),
+            ('karos-77.png', (12, 8, 97, 18), (77.0, 56.2)),
+            ('karos-77.png', (0, 0, 120, 40), (77.0, 56.2)),
         ):
             with self.subTest(image=name):
                 encoded = base64.b64encode((fixtures/name).read_bytes()).decode('ascii')

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import base64
+import gzip
 import json
 import os
 import queue
@@ -71,13 +72,28 @@ using System.Collections.Generic;
 public static class CoordinateFrames {
  public class Batch { public string[] Frames; public int[][] Shapes; }
  [DllImport("user32.dll")] static extern bool SetProcessDpiAwarenessContext(IntPtr context);
+ [DllImport("user32.dll")] static extern IntPtr SetThreadDpiAwarenessContext(IntPtr context);
+ [DllImport("user32.dll")] static extern IntPtr GetDC(IntPtr window);
+ [DllImport("user32.dll")] static extern int ReleaseDC(IntPtr window,IntPtr dc);
+ [DllImport("gdi32.dll")] static extern bool BitBlt(IntPtr destination,int dx,int dy,int width,int height,IntPtr source,int sx,int sy,uint operation);
  static CoordinateFrames() {
   try { SetProcessDpiAwarenessContext(new IntPtr(-4)); } catch(EntryPointNotFoundException) { }
  }
  public static Batch Make(int x, int y, int w, int h, string image, int[] preferred) {
+  try { SetThreadDpiAwarenessContext(new IntPtr(-4)); } catch(EntryPointNotFoundException) { }
   using (Bitmap source = new Bitmap(w,h,PixelFormat.Format32bppArgb)) {
    using (Graphics g = Graphics.FromImage(source)) {
-    if (String.IsNullOrEmpty(image)) g.CopyFromScreen(x,y,0,0,new Size(w,h),CopyPixelOperation.SourceCopy);
+    if (String.IsNullOrEmpty(image)) {
+     IntPtr desktop=GetDC(IntPtr.Zero),target=IntPtr.Zero;
+     try {
+      target=g.GetHdc();
+      if(desktop==IntPtr.Zero || !BitBlt(target,0,0,w,h,desktop,x,y,0x40CC0020))
+       throw new InvalidOperationException("Desktop coordinate capture failed");
+     } finally {
+      if(target!=IntPtr.Zero) g.ReleaseHdc(target);
+      if(desktop!=IntPtr.Zero) ReleaseDC(IntPtr.Zero,desktop);
+     }
+    }
     else using (MemoryStream stream = new MemoryStream(Convert.FromBase64String(image)))
      using (Bitmap input = new Bitmap(stream)) g.DrawImage(input,new Rectangle(0,0,w,h),new Rectangle(x,y,w,h),GraphicsUnit.Pixel);
    }
@@ -325,7 +341,13 @@ class CoordinateOCR:
             return
         self.close()
         self.responses = queue.Queue(maxsize=4)
-        command = base64.b64encode(SCRIPT.encode('utf-16-le')).decode('ascii')
+        # Keep Windows' command line below 32K even as the helper grows.
+        payload = base64.b64encode(gzip.compress(SCRIPT.encode('utf-8'))).decode('ascii')
+        bootstrap = ("$m=[IO.MemoryStream]::new([Convert]::FromBase64String('"+payload+"'));"
+                     "$z=[IO.Compression.GZipStream]::new($m,[IO.Compression.CompressionMode]::Decompress);"
+                     "$r=[IO.StreamReader]::new($z,[Text.Encoding]::UTF8);"
+                     "$s=$r.ReadToEnd();$r.Dispose();$m.Dispose();Invoke-Expression $s")
+        command = base64.b64encode(bootstrap.encode('utf-16-le')).decode('ascii')
         self.process = subprocess.Popen(
             ['powershell.exe', '-NoProfile', '-NonInteractive', '-WindowStyle', 'Hidden',
              '-EncodedCommand', command], stdin=subprocess.PIPE, stdout=subprocess.PIPE,

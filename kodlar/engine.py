@@ -22,7 +22,7 @@ from .position_controller import PositionController
 from .position_model import PositionConfig
 from .tab_watchdog import TabWatchdog
 from .platform_win import foreground_window, foreground_is_ours
-from .sequences import writing_layout
+from .sequences import writing_layout, migrate_group_timing, transition_delay
 
 LOGGER = logging.getLogger(__name__)
 
@@ -189,8 +189,7 @@ class RandomizedAutoClicker:
         if active and self.position_controller.config.enabled:
             issue = self.position_controller.activation_issue()
             if issue:
-                self.log('Konum kontrolü: ' + issue)
-                return
+                self.log('Konum kontrolü bekliyor; normal makrolar devam edecek. ' + issue)
         if active and not self.is_running:
             for group in self.sequence_groups:
                 if not group.enabled:
@@ -280,6 +279,8 @@ class RandomizedAutoClicker:
             return self._runtime_enabled.get(config.id_token, config.enabled)
 
     def position_manages_config(self, config):
+        if self.position_controller.reading_lost and not self.position_controller.motion.holding:
+            return False
         if not self.position_controller.config.enabled or config.key.lower().strip() not in {'w', 'a', 's', 'd'}:
             return False
         for group in self.sequence_groups:
@@ -360,7 +361,8 @@ class RandomizedAutoClicker:
             self.writing_gate.focus_check = check_focus
             try:
                 self.log(f"Yazı başladı: {group.name}")
-                for key in members:
+                items = {item.macro_id: item for item in group.children}
+                for index, key in enumerate(members):
                     if cancelled():
                         return False
                     check_focus()
@@ -371,7 +373,13 @@ class RandomizedAutoClicker:
                             reason = "Tuş gönderilemedi." if result is StepResult.ERROR else "İzleme koşulu değişti."
                             raise RuntimeError(reason)
                         return False
-                    delay = max(0.0, self.macro_delay(key) - (time.monotonic()-started))
+                    item = items[key]
+                    if item.gap_seconds is not None:
+                        if index == len(members)-1:
+                            continue  # Closing wait runs outside the writing reservation.
+                        delay = transition_delay(item)
+                    else:
+                        delay = max(0.0, self.macro_delay(key) - (time.monotonic()-started))
                     if self.writing_gate.wait(delay, cancelled):
                         return False
                 self.log(f"Yazı tamamlandı: {group.name}")
@@ -419,6 +427,7 @@ class RandomizedAutoClicker:
         restart: bool = True,
     ) -> None:
         if sequence_groups is not None:
+            migrate_group_timing(sequence_groups, configs)
             self.sequence_groups = flatten_groups(sequence_groups)
             self.sequence_runner.configure(sequence_groups)
         self.update_key_workers(configs, force_restart=restart)
@@ -478,6 +487,7 @@ class RandomizedAutoClicker:
                 if key in self._worker_entries:
                     continue
                 worker = KeyClickerWorker(config, self.keyboard, self)
+                worker.grouped = mode[0]
                 self._worker_entries[key] = dict(worker=worker, config=config, mode=mode, retiring=False)
                 if not mode[0]:
                     worker.start()

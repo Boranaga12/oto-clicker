@@ -124,6 +124,7 @@ class KeyClickerWorker(StoppableWorker):
     def _press_key(self, before_press: Callable[[], bool] | None = None) -> bool:
         self.last_press_error = None
         key_name = self.config.key.strip().lower()
+        grouped = getattr(self, 'grouped', False) is True
         if not key_name:
             return False
 
@@ -144,31 +145,33 @@ class KeyClickerWorker(StoppableWorker):
                                 self.config.click_y,
                             )
                             # Let the target process observe the cursor move before pressing.
-                            if (
-                                self.wait(0.03) or not self._can_run()
-                                or (before_press is not None and not before_press())
-                            ):
+                            # The condition was admitted before moving. Hover can
+                            # change its pixel; do not cancel an admitted click.
+                            if (self.wait(0.06 if grouped else 0.03) or not self._can_run()
+                                    or (not grouped and before_press is not None and not before_press())):
                                 return False
                             if gate is not None:
                                 gate.check_focus()
                             self.clicker.mark_injected_mouse(mouse_button)
                             self.clicker.mouse.press(mouse_button)
                             try:
-                                self.wait(random.uniform(0.06, 0.08))
+                                self.wait(random.uniform(0.10, 0.14) if grouped else random.uniform(0.06, 0.08))
                             finally:
                                 self.clicker.mouse.release(mouse_button)
                             # Frame-polled UI buttons must see button-up at the target
                             # before the cursor is restored to the user's position.
-                            self.wait(0.05)
+                            self.wait(0.08 if grouped else 0.05)
                         finally:
                             self.clicker.mouse.position = original
                     else:
                         self.clicker.mark_injected_mouse(mouse_button)
                         self.clicker.mouse.press(mouse_button)
                         try:
-                            self.wait(random.uniform(0.06, 0.08))
+                            self.wait(random.uniform(0.10, 0.14) if grouped else random.uniform(0.06, 0.08))
                         finally:
                             self.clicker.mouse.release(mouse_button)
+                        if grouped:
+                            self.wait(.08)
                     self.clicker.log_activity(
                         self.config.id_token,
                         f"Tıklama: {self.config.key.upper()}",
@@ -188,6 +191,8 @@ class KeyClickerWorker(StoppableWorker):
                     self.wait(random.uniform(0.02, 0.05))
                 finally:
                     self.keyboard_controller.release(key)
+                if grouped:
+                    self.wait(.02)
                 callback = getattr(self.clicker, 'macro_key_sent', None)
                 if callback is not None:
                     callback(self.config)
@@ -241,6 +246,9 @@ class KeyClickerWorker(StoppableWorker):
                     self.wait(0.1)
 
     def _can_run(self) -> bool:
+        sequence_cancel = getattr(self, '_sequence_cancel', None)
+        if sequence_cancel is not None and sequence_cancel.is_set():
+            return False
         forced_tab = getattr(self, 'watchdog_owner', None) == threading.get_ident()
         if self.stop_event.is_set() or not self.clicker.enabled_event.is_set() or (not forced_tab and not self.clicker.is_config_enabled(self.config)):
             return False
@@ -349,6 +357,7 @@ class KeyClickerWorker(StoppableWorker):
 
     def press_once(self, cancel: threading.Event) -> StepResult:
         """A group owns this worker and executes a single step synchronously."""
+        self._sequence_cancel = cancel
         def allowed():
             return not cancel.is_set() and self._can_run()
         self.last_press_error = None
@@ -367,7 +376,9 @@ class KeyClickerWorker(StoppableWorker):
                         return False
                     current = pixels.get(target[0], target[1])
                     self.report_pixel(current, target, bounds)
-                    return self.color_allows(current, target[2])
+                    watchdog = getattr(self.clicker, 'tab_watchdog', None)
+                    fallback = watchdog is not None and watchdog.group_due(self.config) is True
+                    return self.color_allows(current, target[2]) or fallback
                 sent = self.press_key(before_press=changed)
         else:
             sent = self.press_key(before_press=allowed)

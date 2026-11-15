@@ -30,6 +30,25 @@ class InteractionPolishTests(unittest.TestCase):
     setUp = Fixture.setUp
     close = Fixture.close
 
+    def test_group_timing_is_between_cards_and_persists_independently(self):
+        widgets = self.app.config_widgets[id(self.grouped)]
+        self.assertFalse(widgets['timing_frame'].winfo_manager())
+        self.assertEqual(self.app.config_widgets[id(self.config)]['timing_frame'].winfo_manager(), 'pack')
+        item = self.group.children[0]
+        row = self.app.group_widgets[self.group.id_token]['transitions'][item.macro_id]
+        for entry, value in zip(row['entries'], ('1,5', '0,2')):
+            entry.delete(0, 'end')
+            entry.insert(0, value)
+        self.app.save_transition(self.group, item)
+        self.assertEqual((item.gap_seconds, item.gap_random_seconds), (1.5, .2))
+        stored = self.app.profiles_data['groups'][self.app.active_profile][0]['children'][0]
+        self.assertEqual((stored['gap_seconds'], stored['gap_random_seconds']), (1.5, .2))
+        self.assertIn('Başa', row['label'].cget('text'))
+        self.group.enabled = False
+        self.app.refresh_keys_list_ui()
+        self.assertEqual(row['entries'][0].cget('state'), 'disabled')
+
+
     def event(self, widget, dx=0, dy=0, delta=0):
         return SimpleNamespace(widget=widget, x_root=widget.winfo_rootx()+5+dx,
                                y_root=widget.winfo_rooty()+5+dy, delta=delta)
@@ -99,7 +118,7 @@ class InteractionPolishTests(unittest.TestCase):
         self.assertTrue(self.app.profiles_data['positions'][self.app.active_profile]['enabled'])
         self.assertIn('Konumu Seç', panel.status.cget('text'))
         self.engine.set_enabled(True)
-        self.assertFalse(self.engine.is_running)
+        self.assertTrue(self.engine.is_running)
 
     def test_only_tab_exposes_refresh_interval_and_saves_it(self):
         self.assertFalse(self.app.config_widgets[id(self.config)]['tab_frame'].winfo_manager())

@@ -66,19 +66,18 @@ kurulmalıdır. Görüntüler diske veya ağa gönderilmez.
 
 Aktif kutusu sistem duruyorken her zaman açılıp kapatılabilir; eksik ayarlar
 bu tercihi sıfırlamaz. Kartın durum satırı eksik alanı, merkezi veya OCR sorununu
-açıklar. Eksik gereksinimler tamamlanmadan sistem başlamaz. OCR sorunu varsa
+açıklar. Eksik gereksinimde konum denetimi bekler; normal makrolar başlayabilir. OCR sorunu varsa
 karttaki ayrıntıyı kontrol edin; **Windows Dil Ayarları** ile OCR destekli bir
 dilin Metin Tanıma bileşenini yükleyip **OCR’yi Yeniden Dene** düğmesini kullanın.
 İngilizce ABD yoksa bilgisayarda yüklü diğer OCR dilleri otomatik denenir.
 Yavaş bilgisayarlarda merkez için 45 saniyeye kadar beklenir; doğrulanan okuma
 sayısı kartta 0/3 olarak gösterilir. Kısa okuma araları tutarlı ölçümleri silmez.
 
-Kısa OCR kesintilerinde dönüş iptal edilmez: son doğrulanmış konumdan sekiz
-saniyeye kadar aynı yürüyüş sürdürülür. Öğrenilen hız/yön varsa tahmini varışta
-gerçek ölçüm beklenir; tahmin normal makroları açmaz. Daha uzun kesintide W
-bırakılır, okuma düzelince dönüş otomatik sürer. Yazı, odak kaybı ve durdurma
-yürüyüş tuşlarını derhal bırakır. Alanı kaldırmak Aktif tercihini değiştirmez;
-eksik alan veya merkez tamamlanana kadar sistemin başlaması engellenir.
+Koordinat okunamazsa yalnızca otomatik yürüyüş bırakılır; normal tuşlar ve
+gruplar çalışmaya devam eder. Okuma düzelince konum tekrar değerlendirilir;
+devam eden merkeze dönüş gerekiyorsa otomatik sürer. Eksik konum verisi tek
+başına normal bekleme sayaçlarını durdurmaz. Yazı, odak kaybı ve durdurma
+yürüyüş tuşlarını bırakır. Alanı kaldırmak Aktif tercihini değiştirmez.
 
 Aç/kapa kısayoluna atanmış makro gönderildiğinde sistem kendini durdurur. Bu
 kartın izlemesi seçilen renk **bulununca** çalışır. Diğer kartlar renk farklıyken
@@ -87,20 +86,26 @@ yedek basış yapar. Bu süre yalnızca Tab kartlarında görünen **Tab yenilen
 alanından değiştirilebilir; varsayılan 4 saniyedir. Yazı bölümlerinin içindeki
 Tab bundan muaftır. Yazı ve
 yürüyüşte geçen süre bu dört saniyeye eklenmez.
+Grup içindeki Tab yenilemesi kendi sırası geldiğinde uygulanır; başka kartın
+arasına fazladan Tab gönderilmez.
 
 ## Sıralı grupların kullanımı
 
 1. `+ Grup` ile bir ana grup oluşturun.
 2. Grubun `+ Tuş` düğmesiyle adımları ekleyin. Gruba grup eklenmez.
-3. Çalışacak tuşların `Aktif` kutusunu açın, aralık ve rastgele gecikmesini ayarlayın.
+3. Çalışacak tuşların `Aktif` kutusunu açın. Kartlar arasından bekleme ve rastgele ek süreyi ayarlayın.
 4. Ana `BAŞLAT` tüm grupları başlatır. Her grup kendi içinde sırayla döner.
 
-Bir grupta bir anda yalnızca bir adım yürütülür. Tuş bir kez basılır ve bırakılır;
-sonraki adımın zamanı önceki tuşun aralığı + 0 ile rastgelelik sınırı arasında
-seçilen gecikmedir. Tuşa basmak için geçen süre bu süreden düşülür. Ayrı geçiş
-süresi yoktur. Son adımın ardından sıra başa döner. Pasif tuşlar ve rengi eşleşen
-izleme adımları basılmadan atlanır. Grup tuşları bağımsız tekrar iş parçacıkları
-başlatmaz. Durdur, beklemeyi iptal eder; kalan adımlar çalıştırılmaz.
+Bir grupta bir anda yalnızca bir adım yürütülür. Tuş bir kez basılıp bırakılır;
+sonra kartın altındaki `bekleme + 0…rastgele ek süre` uygulanır. Son kartın
+beklemesi başa dönmeden öncedir. Atlanan kartın kendi beklemesi uygulanmaz.
+İzleme uygun kaldığında kart sonraki turda yeniden basılabilir; bağımsız tekrar
+iş parçacığı veya bekleyen basış kuyruğu oluşturmaz. Grup tıklamasında fare
+üzerine gelince renk değişmesi, önceden onaylanan basışı iptal etmez. Durdurma
+beklemeyi keser; giriş hatasında grup sonraki karta sessizce ilerlemez.
+
+Eski aralık ve rastgelelik sayıları geçişlere bir kez aktarılır; artık tuş
+bırakıldıktan sonraki bekleme anlamına gelir. Bağımsız kartlar değişmez.
 
 Eski iç içe grupların tuşları ana grubun içine, aynı sıra korunarak taşınır.
 Aynı kayıtlı tuş birden fazla grupta yer alıyorsa ilk gruptaki üyelik kullanılır.

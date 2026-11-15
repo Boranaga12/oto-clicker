@@ -1,6 +1,17 @@
 """Curated notes bundled with the matching application release."""
 
 CURRENT_NOTES = (
+    'Grup beklemeleri kartların arasına taşındı; tuş bırakıldıktan sonra beklenir ve rastgele ek süre açıkça gösterilir.',
+    'Eski profillerin aralık/rastgele değerleri grup geçişlerine aktarılır; bağımsız kartların aralıkları korunur.',
+    'Grup sol tıklamalarında fare üzerine gelince değişen renk yüzünden iptal olma düzeltildi; basma/bırakma süreleri güçlendirildi.',
+    'İzlenen grup adımı turda bir kez çalışır; atlanan adım kendi beklemesini tüketmez, hatalı adım grubu durdurur.',
+    'Grup içindeki Tab yenilemesi sırasını atlayarak tıklamaların hedefini değiştirmez.',
+    'Konum okunamıyorsa yalnızca otomatik yürüyüş bekler; diğer makrolar ve gruplar çalışmaya devam eder.',
+    'Sabit koordinat panellerinde katmanlı pencere yakalama ve ekran ölçeği uyumu geliştirildi.',
+)
+
+HISTORY = (
+    ("2.3.2", (
     'Başka bilgisayarın ekran düzenine ait alanda merkez kaydetmeye çalışıldığında yeniden seçim gerektiği hemen açıklanır.',
     'Yavaş bilgisayarlarda merkez doğrulamasının sürekli sıfırlanması düzeltildi; bekleme süresi ve 0/3 ilerleme göstergesi eklendi.',
     'OCR, sonraki okumalarda yalnızca seçilen görüntü hazırlamalarını üretir; gereksiz büyütme ve PNG dönüşümleri azaltıldı.',
@@ -10,9 +21,7 @@ CURRENT_NOTES = (
     'İngilizce ABD bulunmayan bilgisayarlarda yüklü diğer Windows OCR dilleri de otomatik denenir.',
     'OCR hatasının ayrıntısı, Yeniden Dene ve Windows Dil Ayarları düğmeleri karta eklendi.',
     'Aktiflik değiştirilirken aynı alanın OCR hazırlık durumu korunur.',
-)
-
-HISTORY = (
+    )),
     ("2.3.1", (
         'Konum kartının etkinleştirilmesi, yavaş bilgisayarda merkez doğrulaması ve Tab yenilenme süresi düzeltildi.',
     )),

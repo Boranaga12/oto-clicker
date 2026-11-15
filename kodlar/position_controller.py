@@ -70,7 +70,6 @@ class Steering:
 
 class PositionController:
     FRESH_SECONDS = 1.5
-    READ_GRACE = 8.0
     CENTER_TIMEOUT = 45.0
 
     def __init__(self, engine, reader_factory=CoordinateOCR):
@@ -108,6 +107,7 @@ class PositionController:
         self.best_gap = math.inf
         self.detours = 0
         self.detour_until = 0.0
+        self.reading_lost = True
 
     def configure(self, profile, config):
         with self.lock:
@@ -129,7 +129,8 @@ class PositionController:
                 'available': None, 'point': None, 'distance': None}
             self.snapshot.update(reader_state)
             self.gate.position_enabled = self.config.enabled
-            self.gate.set_position_blocked(self.config.enabled and self.engine.is_running)
+            self.gate.navigation_active = False
+            self.gate.set_position_blocked(False)
             if self.thread is None:
                 self.thread = threading.Thread(target=self.run, name='position-controller', daemon=True)
                 self.thread.start()
@@ -190,7 +191,9 @@ class PositionController:
         with self.gate.condition:
             self.gate.position_enabled = self.config.enabled
             self.gate.position_epoch = time.monotonic()
-            self.gate.set_position_blocked(active and self.config.enabled)
+            self.gate.navigation_active = False
+            self.gate.set_position_blocked(False)
+        self.reading_lost = True
         if not active:
             self.failure = None
             self.returning = False
@@ -233,9 +236,35 @@ class PositionController:
     def drive(self, generation, stamp, turn=None):
         if generation != self.generation or stamp <= self.gate.position_epoch:
             return False
+        self.gate.navigation_active = True
+        self.gate.set_position_blocked(True)
         self.motion.drive(generation, self.target, self.gate.position_epoch,
-                          stamp+self.READ_GRACE, turn)
+                          stamp+self.FRESH_SECONDS, turn)
         return True
+
+    def mark_reading_lost(self, lost):
+        changed = self.reading_lost != lost
+        self.reading_lost = lost
+        callback = getattr(self.engine, '_request_refresh', None)
+        if changed and callback is not None:
+            callback()
+
+    def motion_released(self, generation, expired=False):
+        if generation != self.generation:
+            return
+        if expired:
+            self.mark_reading_lost(True)
+        if self.reading_lost and not self.failure:
+            self.gate.navigation_active = False
+            self.gate.set_position_blocked(False)
+
+    def release_on_read_loss(self, generation):
+        self.mark_reading_lost(True)
+        self.gate.navigation_active = False
+        self.motion.halt()
+        if not self.motion.holding:
+            self.gate.set_position_blocked(False)
+        self.publish(generation, status='Konum okunamıyor; normal makrolar devam ediyor')
 
     def evaluate(self, point, stamp, generation):
         if generation != self.generation:
@@ -245,7 +274,8 @@ class PositionController:
             self.motion.halt()
             self.returning = False
             self.outside = self.inside = 0
-            self.gate.set_position_blocked(config.enabled)
+            self.gate.navigation_active = False
+            self.gate.set_position_blocked(False)
             self.publish(generation, status='Alan seçin' if not config.region else
                          'Merkezi kaydedin' if config.center is None else 'Konum okunuyor')
             return
@@ -269,10 +299,10 @@ class PositionController:
             self.publish_failure(generation, self.failure)
             return
         if not self.bind_target(generation):
-            self.motion.halt()
-            self.gate.set_position_blocked(True)
+            self.release_on_read_loss(generation)
             self.sample = None
             return
+        self.mark_reading_lost(False)
         total = self.motion.total
         gap = distance(point, config.center)
         self.verified_count += 1
@@ -291,7 +321,6 @@ class PositionController:
             if gap > config.maximum:
                 self.outside = self.outside+1 if stamp-self.outside_stamp <= 4 else 1
                 self.outside_stamp = stamp
-                self.gate.set_position_blocked(True)
                 if self.outside < 2:
                     self.publish(generation, status='Mesafe doğrulanıyor')
                     return
@@ -303,6 +332,7 @@ class PositionController:
                 self.steering.stationary = self.steering.unproductive = 0
             else:
                 self.outside = 0
+                self.gate.navigation_active = False
                 if self.verified_count >= 2:
                     self.allow_normal(generation, stamp)
                 self.publish(generation, status='Konum okunuyor')
@@ -313,6 +343,7 @@ class PositionController:
             self.inside += 1
             if self.inside >= 2 and not self.motion.holding:
                 self.returning = False
+                self.gate.navigation_active = False
                 self.outside = self.inside = 0
                 self.allow_normal(generation, stamp)
                 self.publish(generation, status='Merkeze ulaşıldı')
@@ -353,43 +384,11 @@ class PositionController:
         self.drive(generation, stamp, turn)
         self.publish(generation, status='Merkeze dönüyor')
 
-    def continue_estimate(self, generation):
-        self.gate.set_position_blocked(self.config.enabled and self.engine.is_running)
-        if (not self.returning or not self.engine.is_running or self.failure
-                or not self.filter.last or generation != self.generation or self.gate.writer_pending()):
-            self.motion.halt()
-            return False
-        point, stamp = self.filter.last
-        now = time.monotonic()
-        if (stamp <= self.gate.position_epoch or now-stamp > self.READ_GRACE
-                or self.target is None or foreground_window() != self.target):
-            self.motion.halt()
-            self.sample = None
-            self.publish(generation, status='Dönüş bekliyor; güncel koordinat aranıyor')
-            return False
-        # Keep the same W admission across missing frames. Never count estimates
-        # as arrival measurements or create blind obstacle turns.
-        if self.estimate is not None and self.steering.heading is not None and self.steering.speed:
-            elapsed = max(0, now-self.estimate_stamp)
-            travel = min(elapsed, .5)*self.steering.speed if self.motion.holding else 0
-            self.estimate = (self.estimate[0]+math.cos(self.steering.heading)*travel,
-                             self.estimate[1]+math.sin(self.steering.heading)*travel)
-            self.estimate_stamp = now
-            if distance(self.estimate, self.config.center) <= self.config.minimum+.2:
-                self.motion.halt()
-                self.publish(generation, status='Tahmini varış; gerçek koordinat bekleniyor')
-                return False
-        self.drive(generation, stamp)
-        self.publish(generation, status='Konum tahminiyle merkeze dönüyor')
-        return True
-
     def missing_reading(self, generation):
         # Do not erase an earlier trusted outside-Max reading on every OCR miss.
         self.verified_count = 0
         self.inside = 0
-        self.gate.set_position_blocked(self.config.enabled and self.engine.is_running)
-        self.publish(generation, status='Koordinat aranıyor')
-        self.continue_estimate(generation)
+        self.release_on_read_loss(generation)
 
     def run(self):
         while not self.closed.is_set():
@@ -406,8 +405,7 @@ class PositionController:
                 continue
             if (config.display != screen_bounds() or
                     (config.monitors is not None and config.monitors != monitor_layout())):
-                self.motion.halt()
-                self.gate.set_position_blocked(config.enabled and self.engine.is_running)
+                self.release_on_read_loss(generation)
                 self.publish(generation, status='Ekran değişti; konumu yeniden seçin')
                 self.wake.wait(.5)
                 continue
@@ -427,7 +425,7 @@ class PositionController:
                 if self.center_requested and stamp <= self._request_after:
                     continue
                 if stamp <= self.gate.position_epoch and config.enabled and self.engine.is_running:
-                    self.gate.set_position_blocked(True)
+                    self.missing_reading(generation)
                     continue
                 accepted = self.filter.accept(point, stamp, moving=self.motion.holding,
                                                expected_speed=self.steering.speed)
@@ -448,7 +446,7 @@ class PositionController:
                 if self.closed.is_set():
                     break
                 LOGGER.exception('Koordinat okuyucu başarısız')
-                self.gate.set_position_blocked(config.enabled and self.engine.is_running)
+                self.release_on_read_loss(generation)
                 self.publish(generation, available=False,
                              status=ocr_error_message(error), ocr_message=ocr_error_message(error),
                              error=str(error).strip() or type(error).__name__)

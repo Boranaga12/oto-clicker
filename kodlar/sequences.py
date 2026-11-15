@@ -5,6 +5,7 @@ from dataclasses import dataclass, field
 from typing import Any, Mapping
 
 from .models import new_id
+import random
 
 
 MAX_GROUP_DEPTH = 5
@@ -26,6 +27,8 @@ class SequenceItem:
     delay_seconds: float = 1.0
     macro_id: str = ""
     group: SequenceGroup | None = None
+    gap_seconds: float | None = None
+    gap_random_seconds: float = 0.0
 
 
 @dataclass(slots=True)
@@ -87,6 +90,8 @@ def sequence_group_from_dict(
                         kind="macro",
                         delay_seconds=delay,
                         macro_id=macro_id,
+                        gap_seconds=_safe_delay(raw_item['gap_seconds'], 0) if raw_item.get('gap_seconds') is not None else None,
+                        gap_random_seconds=_safe_delay(raw_item.get('gap_random_seconds'), 0),
                     )
                 )
     return group
@@ -107,6 +112,8 @@ def sequence_group_to_dict(group: SequenceGroup) -> dict[str, Any]:
                 "delay_seconds": item.delay_seconds,
                 "macro_id": item.macro_id,
             })
+            if item.gap_seconds is not None:
+                children[-1].update(gap_seconds=item.gap_seconds, gap_random_seconds=item.gap_random_seconds)
     return {
         "name": group.name,
         "enabled": group.enabled,
@@ -124,6 +131,21 @@ def sequence_groups_from_list(data: Any) -> list[SequenceGroup]:
         for item in data
         if isinstance(item, Mapping)
     ])
+
+
+def migrate_group_timing(groups, configs):
+    """Preserve old numeric timing once; subsequent waits belong to transitions."""
+    configs = {config.id_token: config for config in configs}
+    for group in iter_groups(groups):
+        for item in group.children:
+            config = configs.get(item.macro_id)
+            if config is not None and item.gap_seconds is None:
+                item.gap_seconds = config.interval_seconds
+                item.gap_random_seconds = config.random_seconds
+
+
+def transition_delay(item):
+    return max(0.0, item.gap_seconds or 0.0)+random.uniform(0.0, max(0.0, item.gap_random_seconds))
 
 
 def iter_groups(groups: list[SequenceGroup]):

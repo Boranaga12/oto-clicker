@@ -42,6 +42,7 @@ from .sequences import (
 )
 from .ui_widgets import DEFAULT_THEME, ScrollableFrame, PointMarker
 from .workers import MOUSE_NAMES
+from .sequences import migrate_group_timing
 from .magnifier import SelectionMagnifier
 from .position_model import PositionConfig
 from .position_ui import PositionPanel
@@ -849,6 +850,7 @@ class ClickerApp:
         update_workers: bool = False,
         update_sequences: bool = False,
     ) -> None:
+        migrate_group_timing(self.sequence_groups, self.key_configs)
         self.profiles_data.setdefault('positions', {})[self.active_profile] = getattr(
             self, 'position_config', PositionConfig()).to_dict()
         self.profiles_data["profiles"][self.active_profile] = [
@@ -1493,9 +1495,11 @@ class ClickerApp:
                               bd=0, command=lambda g=group: self.repair_writing(g))
         children_frame = tk.Frame(card, bg="#111c2b")
         children_frame.pack(fill="x", pady=(4, 0))
+        tk.Label(card, text='Her tur tek basış · Koşul uygun değilse atla · Bekleme tuş bırakılınca başlar',
+                 bg='#111c2b', fg=self.text_secondary, font=('Segoe UI', 7), wraplength=400).pack(fill='x')
         self.group_widgets[group.id_token] = dict(outer=outer, check=group_check,
             enabled_var=enabled_var, name_entry=name_entry, children=children_frame,
-            header=header, error=error_btn, model=group, signature=None)
+            header=header, error=error_btn, model=group, signature=None, transitions={})
         return self.group_widgets[group.id_token]
 
     @editable_only
@@ -1590,6 +1594,7 @@ class ClickerApp:
             if name != self.active_profile and (name not in self.profiles_data["profiles"] or len(self._profile_views) > 3):
                 self._profile_views.pop(name)["frame"].destroy()
         self.sequence_groups = flatten_groups(self.sequence_groups)
+        migrate_group_timing(self.sequence_groups, self.key_configs)
         configs = {config.id_token: config for config in self.key_configs}
         groups = {group.id_token: group for group in self.sequence_groups}
         parents = {item.macro_id: group.id_token for group in self.sequence_groups for item in group.children}
@@ -1629,12 +1634,17 @@ class ClickerApp:
                     widgets["error"].pack_forget()
                 widgets["signature"] = signature
             children = []
-            for item in group.children:
+            for key, transition in list(widgets['transitions'].items()):
+                if key not in {item.macro_id for item in group.children}:
+                    transition['frame'].destroy()
+                    del widgets['transitions'][key]
+            for index, item in enumerate(group.children):
                 config = configs.get(item.macro_id)
                 if config is None:
                     continue
                 card = self.reconcile_card(view, config, group, widgets["children"], contexts[group.id_token])
                 children.append(card)
+                children.append(self.reconcile_transition(widgets, group, item, config, index == len(group.children)-1))
             self.arrange_cards(widgets["children"], children)
             self._group_cards[group.id_token] = [(item.macro_id, view["configs"][item.macro_id]["card"])
                 for item in group.children if item.macro_id in view["configs"]]
@@ -1648,6 +1658,63 @@ class ClickerApp:
         if switched:
             canvas.update_idletasks()
             canvas.yview_moveto(view["scroll"])
+
+    def reconcile_transition(self, widgets, group, item, config, last):
+        row = widgets['transitions'].get(item.macro_id)
+        if row is not None and row['model'] is not item:
+            row['frame'].destroy()
+            row = None
+        if row is None:
+            frame = tk.Frame(widgets['children'], bg='#111c2b', padx=10, pady=4)
+            label = tk.Label(frame, bg='#111c2b', fg=self.text_secondary, font=('Segoe UI', 8))
+            label.pack(side='left', padx=(0, 6))
+            entries = []
+            for name, text in (('gap_seconds', 'sn'), ('gap_random_seconds', 'sn')):
+                if entries:
+                    tk.Label(frame, text='+ rastgele 0…', bg='#111c2b', fg=self.text_secondary,
+                             font=('Segoe UI', 7)).pack(side='left', padx=(6, 3))
+                entry = self.create_modern_entry(frame, width=5)
+                entry.frame.pack(side='left')
+                entry._saved_value = lambda step=item, field=name: f'{getattr(step, field):g}'
+                entry.insert(0, entry._saved_value())
+                entry.bind('<FocusOut>', lambda _e, g=group, step=item: self.save_transition(g, step))
+                entry.bind('<Return>', lambda _e, g=group, step=item: self.save_transition(g, step))
+                tk.Label(frame, text=text, bg='#111c2b', fg=self.text_secondary,
+                         font=('Segoe UI', 7)).pack(side='left', padx=(2, 0))
+                entries.append(entry)
+            row = dict(frame=frame, label=label, entries=entries, model=item, signature=None)
+            widgets['transitions'][item.macro_id] = row
+        signature = (item.gap_seconds, item.gap_random_seconds, group.enabled, config.enabled, last)
+        if row['signature'] != signature:
+            row['label'].configure(text='↻ Başa dönmeden' if last else '↓ Sonraki tuştan önce')
+            for entry in row['entries']:
+                if self.root.focus_get() is not entry:
+                    entry.delete(0, 'end')
+                    entry.insert(0, entry._saved_value())
+            self.restore_group_controls(row['frame'])
+            self.fade_widgets(row['frame'], not group.enabled or not config.enabled, locked=not group.enabled)
+            row['signature'] = signature
+        return row['frame']
+
+    @editable_only
+    def save_transition(self, group, item):
+        row = self.group_widgets.get(group.id_token, {}).get('transitions', {}).get(item.macro_id)
+        if row is None:
+            return
+        try:
+            delay, spread = [float(entry.get().replace(',', '.')) for entry in row['entries']]
+            if not all(math.isfinite(value) and value >= 0 for value in (delay, spread)):
+                raise ValueError
+        except ValueError:
+            for entry in row['entries']:
+                entry.delete(0, 'end')
+                entry.insert(0, entry._saved_value())
+            self.clicker.log('Bekleme ve rastgele ek süre sıfır veya daha büyük olmalı.')
+            return
+        if (delay, spread) != (item.gap_seconds, item.gap_random_seconds):
+            item.gap_seconds, item.gap_random_seconds = delay, spread
+            self.save_current_configs_to_profiles(update_workers=False)
+            self.refresh_keys_list_ui()
 
     def reconcile_card(self, view, config, group, parent, context):
         widgets = view["configs"].get(config.id_token)
@@ -1698,15 +1765,18 @@ class ClickerApp:
             activeforeground="white", padx=7, pady=3)
         key_btn.pack(side="left", padx=(0, 7))
         key_btn.configure(command=lambda cfg=config, btn=key_btn: self.start_key_capture("key", cfg, btn))
-        tk.Label(row1, text="Aralık", bg="#2a3b51", fg=self.text_secondary,
+        timing = tk.Frame(row1, bg='#2a3b51')
+        if group is None:
+            timing.pack(side='left')
+        tk.Label(timing, text="Aralık", bg="#2a3b51", fg=self.text_secondary,
                  font=("Segoe UI", 8)).pack(side="left")
-        int_entry = self.create_modern_entry(row1, width=5)
+        int_entry = self.create_modern_entry(timing, width=5)
         int_entry.frame.pack(side="left", padx=(3, 6))
         int_entry.insert(0, f"{config.interval_seconds:.3f}")
         int_entry._saved_value = lambda cfg=config: f"{cfg.interval_seconds:.3f}"
-        tk.Label(row1, text="±", bg="#2a3b51", fg=self.text_secondary,
+        tk.Label(timing, text="+ 0…", bg="#2a3b51", fg=self.text_secondary,
                  font=("Segoe UI", 9)).pack(side="left")
-        rand_entry = self.create_modern_entry(row1, width=5)
+        rand_entry = self.create_modern_entry(timing, width=5)
         rand_entry.frame.pack(side="left", padx=(3, 0))
         rand_entry.insert(0, f"{config.random_seconds:.3f}")
         rand_entry._saved_value = lambda cfg=config: f"{cfg.random_seconds:.3f}"
@@ -1773,7 +1843,7 @@ class ClickerApp:
             command=lambda cfg=config, lbl=loc_lbl: self.reset_click_coordinate(cfg, lbl))
         reset_btn.pack(side="left", padx=2)
         widgets = dict(card=card, chk_var=var, chk=chk, key_btn=key_btn,
-            int_entry=int_entry, rand_entry=rand_entry, screen_var=screen_var, screen_check=chk_screen,
+            int_entry=int_entry, rand_entry=rand_entry, timing_frame=timing, screen_var=screen_var, screen_check=chk_screen,
             screen_frame=screen_frame, coord_lbl=coord_lbl, color_preview=color_preview,
             pixel_btn=pixel_btn, click_frame=click_frame, loc_lbl=loc_lbl, loc_btn=loc_btn,
             tab_frame=tab_frame, tab_entry=tab_entry,

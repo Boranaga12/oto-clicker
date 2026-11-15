@@ -37,9 +37,13 @@ class TabWatchdog:
             return False
         for group in self.engine.sequence_groups:
             roles, _errors = writing_layout(group)
-            if config.id_token in roles or (not group.enabled and config.id_token in grouped_macro_ids([group])):
+            if config.id_token in roles or config.id_token in grouped_macro_ids([group]):
                 return False
         return True
+
+    def group_due(self, config):
+        return (config.key.strip().lower() == 'tab' and config.screen_mode
+                and self.engine.writing_gate.owner is None and self.due(config))
 
     def run(self):
         engine = self.engine

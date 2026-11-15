@@ -151,6 +151,8 @@ class ContinuousWalker:
                                 self.elapsed += time.monotonic()-self.started
                             self.started = None
                             self.turn_request = None
+                            expired = self.request is not None and time.monotonic() > self.request.expires
+                        self.controller.motion_released(admitted_request.generation, expired)
             except Exception:
                 LOGGER.exception('Sürekli yürüyüş girdisi başarısız')
                 self.controller.failure = 'Hareket gönderilemedi; oyunu kontrol edin'

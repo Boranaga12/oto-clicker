@@ -8,10 +8,34 @@ from unittest.mock import Mock, patch
 from pynput.mouse import Button
 
 from kodlar.models import KeyConfig
-from kodlar.workers import KeyClickerWorker
+from kodlar.workers import KeyClickerWorker, StepResult
 
 
 class WorkerTests(unittest.TestCase):
+    def test_group_click_is_not_cancelled_by_hover_color_and_runs_once(self):
+        worker, engine = self.worker(screen_mode=True, target_color='#ffffff', click_x=100, click_y=200)
+        worker.grouped = True
+        worker.wait = Mock(return_value=False)
+        engine.mouse.position = (10, 20)
+        pixels = Mock()
+        pixels.get.side_effect = ['#000000', '#ffffff']
+        with patch('kodlar.workers.PixelSampler') as sampler:
+            sampler.return_value.__enter__.return_value = pixels
+            self.assertEqual(worker.press_once(threading.Event()), StepResult.SENT)
+        engine.mouse.press.assert_called_once_with(Button.left)
+        engine.mouse.release.assert_called_once_with(Button.left)
+        self.assertEqual(pixels.get.call_count, 1)
+        self.assertEqual(engine.mouse.position, (10, 20))
+        self.assertIn(unittest.mock.call(.08), worker.wait.call_args_list)
+
+    def test_group_cancel_during_cursor_settle_never_presses_the_button(self):
+        worker, engine = self.worker(click_x=100, click_y=200)
+        worker.grouped = True
+        cancel = threading.Event()
+        worker.wait = lambda _seconds: cancel.set() or False
+        self.assertEqual(worker.press_once(cancel), StepResult.CANCELLED)
+        engine.mouse.press.assert_not_called()
+
     def worker(self, **settings):
         config = KeyConfig('sol klik', 0, 0, **settings)
         engine = Mock()

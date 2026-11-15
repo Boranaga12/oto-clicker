@@ -6,6 +6,7 @@ from unittest.mock import Mock, patch
 
 from kodlar.models import KeyConfig
 from kodlar.workers import KeyClickerWorker
+from kodlar.sequences import SequenceGroup, SequenceItem
 from kodlar.tests.test_engine import EngineTests as EngineFixture
 
 
@@ -83,6 +84,17 @@ class MacroBehaviourTests(unittest.TestCase):
         self.assertTrue(worker._can_run())
         self.assertTrue(config.enabled)
         self.assertFalse(self.engine._runtime_enabled[config.id_token])
+
+    def test_tab_watchdog_does_not_jump_a_group_queue(self):
+        config = KeyConfig('tab', 1, 0, screen_mode=True, target_color='#ffffff')
+        self.engine.sequence_groups = [SequenceGroup(children=[SequenceItem('macro', macro_id=config.id_token)])]
+        self.engine.tab_watchdog.started = 0
+        with patch.object(self.engine.writing_gate, 'clock', return_value=10):
+            self.assertFalse(self.engine.tab_watchdog.eligible(config))
+            self.assertTrue(self.engine.tab_watchdog.group_due(config))
+            self.engine.writing_gate.owner = -1
+            self.assertFalse(self.engine.tab_watchdog.group_due(config))
+            self.engine.writing_gate.owner = None
 
 
 del EngineFixture

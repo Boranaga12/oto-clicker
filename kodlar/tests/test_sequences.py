@@ -6,10 +6,83 @@ import unittest
 from unittest.mock import Mock, patch
 
 from kodlar.sequence_runner import SequenceRunner
-from kodlar.sequences import SequenceGroup, SequenceItem, sequence_group_to_dict, sequence_groups_from_list
+from kodlar.sequences import SequenceGroup, SequenceItem, WritingBlock, sequence_group_to_dict, sequence_groups_from_list, migrate_group_timing
+from kodlar.models import KeyConfig
+from types import SimpleNamespace
 
 
 class SequenceTests(unittest.TestCase):
+    def test_transition_migration_preserves_legacy_values_once(self):
+        config = KeyConfig('a', .4, .2)
+        group = SequenceGroup(children=[SequenceItem('macro', macro_id=config.id_token)])
+        migrate_group_timing([group], [config])
+        self.assertEqual((group.children[0].gap_seconds, group.children[0].gap_random_seconds), (.4, .2))
+        config.interval_seconds = 9
+        migrate_group_timing([group], [config])
+        restored = sequence_groups_from_list([sequence_group_to_dict(group)])[0].children[0]
+        self.assertEqual((restored.gap_seconds, restored.gap_random_seconds), (.4, .2))
+
+    def test_explicit_transition_waits_after_release_and_adds_random_once(self):
+        clock, waits = [0.0], []
+        class Stop:
+            def is_set(self): return False
+            def wait(self, seconds):
+                waits.append(seconds)
+                return True
+        def execute(_key, _stop):
+            clock[0] += .28
+            return True
+        group = SequenceGroup(children=[SequenceItem('macro', macro_id='a', gap_seconds=.2, gap_random_seconds=.3)])
+        legacy = Mock(side_effect=AssertionError('Legacy card timing used'))
+        runner = self.runner(execute, legacy)
+        with patch('kodlar.sequences.random.uniform', return_value=.1) as jitter, \
+             patch('kodlar.sequence_runner.time.monotonic', side_effect=lambda: clock[0]):
+            runner._run(group, Stop())
+        self.assertAlmostEqual(waits[0], .3)
+        jitter.assert_called_once_with(0.0, .3)
+        legacy.assert_not_called()
+
+    def test_skipped_card_does_not_wait_or_repeat_its_monitor(self):
+        calls, waits = [], []
+        class Stop:
+            def is_set(self): return False
+            def wait(self, seconds):
+                waits.append(seconds)
+                return True
+        group = SequenceGroup(children=[SequenceItem('macro', macro_id='a', gap_seconds=99),
+                                        SequenceItem('macro', macro_id='b', gap_seconds=.2)])
+        runner = self.runner(lambda key, _stop: calls.append(key) or key == 'b')
+        runner._run(group, Stop())
+        self.assertEqual(calls, ['a', 'b'])
+        self.assertEqual(waits, [.2])
+
+    def test_input_error_stops_group_instead_of_advancing_to_next_card(self):
+        errors, calls = [], []
+        runner = self.runner(lambda key, _stop: calls.append(key) or SimpleNamespace(value='error'))
+        runner._log = errors.append
+        group = SequenceGroup(children=[SequenceItem('macro', macro_id='a', gap_seconds=0), SequenceItem('macro', macro_id='b')])
+        runner._run(group, threading.Event())
+        self.assertEqual(calls, ['a'])
+        self.assertIn('gönderilemedi', errors[-1])
+
+    def test_writing_closing_transition_runs_once_outside_the_block(self):
+        waits = []
+        class Stop:
+            def is_set(self): return False
+            def wait(self, seconds):
+                waits.append(seconds)
+                return True
+        group = SequenceGroup(children=[SequenceItem('macro', macro_id=key, gap_seconds=delay)
+            for key, delay in (('open', .1), ('body', .2), ('close', .4))],
+            writing_blocks=[WritingBlock('open', 'close')])
+        execute = Mock()
+        runner = self.runner(execute)
+        runner.execute_writing = Mock(return_value=True)
+        runner._run(group, Stop())
+        self.assertEqual(waits, [.4])
+        execute.assert_not_called()
+        runner.execute_writing.assert_called_once()
+
     def runner(self, execute, delay=lambda _macro_id: 0.01):
         return SequenceRunner(execute, delay, lambda *_args: None, lambda _message: None)
 

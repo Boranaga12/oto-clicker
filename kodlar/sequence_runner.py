@@ -4,7 +4,7 @@ import threading
 import time
 from collections.abc import Callable
 
-from .sequences import SequenceGroup, flatten_groups, writing_layout
+from .sequences import SequenceGroup, flatten_groups, writing_layout, transition_delay
 
 
 class SequenceRunner:
@@ -71,15 +71,27 @@ class SequenceRunner:
                         continue
                     if role == "open":
                         if self.execute_writing is not None:
-                            executed = self.execute_writing(group, block, stop) or executed
+                            sent = self.execute_writing(group, block, stop)
+                            executed = sent or executed
+                            closing = next(child for child in group.children if child.macro_id == block.closing)
+                            if sent and closing.gap_seconds is not None and self.wait_delay(transition_delay(closing), stop):
+                                return
                         continue
                     if stop.is_set():
                         return
                     started = self.clock()
-                    if self._execute_macro(item.macro_id, stop):
+                    result = self._execute_macro(item.macro_id, stop)
+                    if getattr(result, 'value', None) == 'error':
+                        raise RuntimeError('Adım gönderilemedi; bu grup durduruldu.')
+                    if getattr(result, 'value', None) == 'cancelled':
+                        return
+                    if result:
                         executed = True
-                        period = max(0.001, self._macro_delay(item.macro_id))
-                        remaining = max(0.0, period - (self.clock() - started))
+                        if item.gap_seconds is not None:
+                            remaining = transition_delay(item)
+                        else:
+                            period = max(0.001, self._macro_delay(item.macro_id))
+                            remaining = max(0.0, period - (self.clock() - started))
                         if self.wait_delay(remaining, stop):
                             return
                 if not executed:
