@@ -93,7 +93,9 @@ class PositionPriorityTests(unittest.TestCase):
         self.assertFalse(controller.gate.allowed())
         controller.allow_normal(1, old)
         self.assertFalse(controller.gate.allowed())
-        controller.allow_normal(1, time.monotonic())
+        epoch = controller.gate.position_epoch
+        with patch('kodlar.position_controller.time.monotonic', return_value=epoch+.01):
+            controller.allow_normal(1, epoch+.001)
         self.assertTrue(controller.gate.allowed())
 
     def test_stale_measurement_cannot_unblock_normal_macros(self):
@@ -228,9 +230,10 @@ class KarosScreenshotOCRTests(unittest.TestCase):
     def test_provided_karos_screenshots(self):
         fixtures = Path(__file__).with_name('fixtures')
         for name, region, expected in (
-            ('karos-67.png', (14, 13, 85, 21), (67.6, 77.5)),
-            ('karos-69.png', (38, 19, 85, 22), (69.0, 87.1)),
+            ('karos-67.png', (15, 16, 82, 16), (67.6, 77.5)),
+            ('karos-69.png', (39, 23, 81, 17), (69.0, 87.1)),
         ):
             with self.subTest(image=name):
                 encoded = base64.b64encode((fixtures/name).read_bytes()).decode('ascii')
-                self.assertEqual(self.reader.read(region, encoded), expected)
+                point = self.reader.read(region, encoded)
+                self.assertEqual(point, expected, repr(self.reader.last_texts))

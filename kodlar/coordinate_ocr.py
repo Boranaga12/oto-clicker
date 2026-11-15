@@ -67,16 +67,17 @@ public static class CoordinateFrames {
     }
     BitmapData dst=mask.LockBits(rect,ImageLockMode.WriteOnly,PixelFormat.Format32bppArgb);
     try { Marshal.Copy(data,0,dst.Scan0,data.Length); } finally { mask.UnlockBits(dst); }
-    return new string[]{Encode(source),Encode(mask)};
+    return new string[]{Encode(source, false),Encode(mask, true)};
    }
   }
  }
- static string Encode(Bitmap source) {
-  using(Bitmap scaled=new Bitmap(source.Width*4,source.Height*4,PixelFormat.Format32bppArgb)) {
+ static string Encode(Bitmap source, bool mask) {
+  using(Bitmap scaled=new Bitmap(source.Width*4+32,source.Height*4+32,PixelFormat.Format32bppArgb)) {
    using(Graphics g=Graphics.FromImage(scaled)) {
-    g.InterpolationMode=InterpolationMode.NearestNeighbor;
+    g.Clear(mask ? Color.White : Color.Black);
+    g.InterpolationMode=mask ? InterpolationMode.NearestNeighbor : InterpolationMode.HighQualityBicubic;
     g.PixelOffsetMode=PixelOffsetMode.Half;
-    g.DrawImage(source,new Rectangle(0,0,scaled.Width,scaled.Height));
+    g.DrawImage(source,new Rectangle(16,16,source.Width*4,source.Height*4));
    }
    using(MemoryStream stream=new MemoryStream()) {
     scaled.Save(stream,ImageFormat.Png); return Convert.ToBase64String(stream.ToArray());
@@ -124,6 +125,7 @@ class CoordinateOCR:
         self.responses = queue.Queue()
         self.serial = 0
         self.lock = threading.Lock()
+        self.last_texts = []
 
     def _receive(self, process, responses):
         try:
@@ -173,7 +175,8 @@ class CoordinateOCR:
                 response = self.responses.get(timeout=6)
                 if response.get('id') != self.serial or 'error' in response:
                     raise RuntimeError(response.get('error', 'Geçersiz OCR yanıtı'))
-                points = [parse_coordinates(text) for text in response.get('texts', [])]
+                self.last_texts = response.get('texts', [])
+                points = [parse_coordinates(text) for text in self.last_texts]
                 valid = [point for point in points if point is not None]
                 # Different successful parses disagree: never guess which is correct.
                 return valid[0] if valid and all(p == valid[0] for p in valid) else None

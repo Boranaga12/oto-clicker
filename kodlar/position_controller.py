@@ -200,7 +200,9 @@ class PositionController:
             self.returning = False
             self.outside = self.inside = 0
             self.failure = None
-            self.gate.set_position_blocked(False)
+            # Keep enabled navigation closed while stopped, including the
+            # startup handover before the engine's enabled event is set.
+            self.gate.set_position_blocked(config.enabled)
             self.publish(generation, status='Konum okunuyor' if config.center else 'Merkezi kaydedin')
             return
         if self.gate.writer_pending():
