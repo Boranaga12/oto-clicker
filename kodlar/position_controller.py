@@ -22,16 +22,20 @@ class Steering:
     def __init__(self):
         self.heading = None
         self.a_rate = None
+        self.speed = None
         self.stationary = 0
         self.unproductive = 0
 
-    def observe(self, before, after, center, turn=None):
+    def observe(self, before, after, center, turn=None, walk_seconds=None):
         delta = (after[0]-before[0], after[1]-before[1])
         length = math.hypot(*delta)
         if length < 0.09:
             self.stationary += 1
             return
         self.stationary = 0
+        if walk_seconds and .2 <= length/walk_seconds <= 30:
+            measured = length/walk_seconds
+            self.speed = measured if self.speed is None else .6*self.speed+.4*measured
         heading = math.atan2(delta[1], delta[0])
         if turn is not None and self.heading is not None:
             key, seconds = turn
@@ -50,7 +54,7 @@ class Steering:
 
     def commands(self, point, config):
         margin = distance(point, config.center)-config.minimum
-        walk = min(0.12, max(0.04, margin*0.025))
+        walk = min(0.36, max(0.14, margin*0.04))
         if self.heading is None:
             return [('w', walk)]
         desired = math.atan2(config.center[1]-point[1], config.center[0]-point[0])
@@ -58,10 +62,10 @@ class Steering:
         if abs(error) <= 0.25:
             return [('w', walk)]
         if self.a_rate is None:
-            turn = ('a', 0.08)
+            turn = ('a', 0.18)
         else:
             turn = ('a' if error*self.a_rate > 0 else 'd',
-                    min(0.3, max(0.04, abs(error/self.a_rate))))
+                    min(0.28, max(0.12, abs(error/self.a_rate))))
         return [turn, ('w', walk)]
 
 
@@ -95,6 +99,10 @@ class PositionController:
         self.pending_observation = None
         self._request_after = 0.0
         self.verified_count = 0
+        self.estimate = None
+        self.estimate_heading = None
+        self.blind_spent = 0.0
+        self.blind_until = 0.0
 
     def configure(self, profile, config):
         with self.lock:
@@ -165,7 +173,7 @@ class PositionController:
     def cancel_pulse(self, generation, stamp):
         return (self.closed.is_set() or generation != self.generation
                 or not self.engine.is_running or not self.config.enabled
-                or time.monotonic()-stamp > 0.75 or self.gate.writer_pending()
+                or time.monotonic() > max(stamp+0.75, self.blind_until) or self.gate.writer_pending()
                 or self.target is None or foreground_window() != self.target)
 
     def pulse(self, key, seconds, generation, stamp):
@@ -181,7 +189,7 @@ class PositionController:
                 self.held_key = key
                 started = time.monotonic()
                 try:
-                    deadline = started + min(0.3, max(0, seconds))
+                    deadline = started + min(0.4, max(0, seconds))
                     while time.monotonic() < deadline:
                         if cancelled():
                             return False
@@ -244,11 +252,14 @@ class PositionController:
         gap = distance(point, config.center)
         self.verified_count += 1
         if self.pending_observation:
-            before, ended, turn = self.pending_observation
+            before, ended, turn, walk_seconds = self.pending_observation
             if stamp <= ended+0.05:
                 return
-            self.steering.observe(before, point, config.center, turn)
+            self.steering.observe(before, point, config.center, turn, walk_seconds)
             self.pending_observation = None
+        self.estimate = point
+        self.estimate_heading = self.steering.heading
+        self.blind_spent = 0.0
         if self.steering.stationary >= 3 or self.steering.unproductive >= 8 or self.spent >= 20:
             self.publish_failure(generation, 'Merkeze ulaşılamadı; karakteri ve konumu kontrol edin')
             return
@@ -277,13 +288,69 @@ class PositionController:
             return
         self.publish(generation, status='Merkeze dönüyor')
         turn = None
+        walked = 0.0
         for key, duration in self.steering.commands(point, config):
             if not self.pulse(key, duration, generation, stamp):
                 self.steering.heading = None
                 return
             if key != 'w':
                 turn = (key, duration)
-        self.pending_observation = (point, time.monotonic(), turn)
+                if self.estimate_heading is not None and self.steering.a_rate is not None:
+                    self.estimate_heading += self.steering.a_rate*duration*(1 if key == 'a' else -1)
+                else:
+                    self.estimate_heading = None
+            else:
+                walked += duration
+                self.advance_estimate(duration)
+        self.pending_observation = (point, time.monotonic(), turn, walked)
+
+    def advance_estimate(self, seconds):
+        if self.estimate is not None and self.estimate_heading is not None and self.steering.speed:
+            travel = seconds*self.steering.speed
+            self.estimate = (self.estimate[0]+math.cos(self.estimate_heading)*travel,
+                             self.estimate[1]+math.sin(self.estimate_heading)*travel)
+
+    def continue_estimate(self, generation):
+        """Bridge a short OCR gap; predictions can never release normal macros."""
+        self.gate.set_position_blocked(self.config.enabled and self.engine.is_running)
+        if (not self.returning or not self.engine.is_running or self.failure
+                or not self.filter.last or generation != self.generation
+                or self.gate.writer_pending()):
+            return False
+        point, stamp = self.filter.last
+        if (stamp <= self.gate.position_epoch or time.monotonic()-stamp > 2.5
+                or self.blind_spent >= .6 or self.target is None
+                or foreground_window() != self.target):
+            return False
+        estimate = self.estimate or point
+        gap = distance(estimate, self.config.center)-self.config.minimum
+        if gap <= .75:
+            return False
+        heading = self.estimate_heading
+        if heading is not None:
+            desired = math.atan2(self.config.center[1]-estimate[1], self.config.center[0]-estimate[0])
+            if abs(signed_angle(desired-heading)) > .5:
+                return False
+        elif self.pending_observation and self.pending_observation[2] is not None:
+            # An unmeasured turn cannot justify a blind forward heading.
+            return False
+        seconds = min(.24, .6-self.blind_spent)
+        if self.steering.speed:
+            seconds = min(seconds, min(1.5-self.blind_spent*self.steering.speed, gap-.5)/self.steering.speed)
+            if self.blind_spent*self.steering.speed >= 1.5:
+                return False
+        self.blind_until = min(stamp+2.5, time.monotonic()+seconds+.03)
+        try:
+            completed = self.pulse('w', seconds, generation, stamp)
+        finally:
+            self.blind_until = 0.0
+        self.blind_spent += seconds
+        if completed:
+            self.advance_estimate(seconds)
+            previous_walk = self.pending_observation[3] if self.pending_observation else 0
+            self.pending_observation = (point, time.monotonic(), None, previous_walk+seconds)
+            self.publish(generation, status='Konum tahminiyle ilerliyor')
+        return completed
 
     def run(self):
         while not self.closed.is_set():
@@ -323,7 +390,8 @@ class PositionController:
                 if started <= self.gate.position_epoch and config.enabled and self.engine.is_running:
                     self.gate.set_position_blocked(True)
                     continue
-                accepted = self.filter.accept(point, started)
+                accepted = self.filter.accept(point, started, moving=self.returning,
+                                               expected_speed=self.steering.speed)
                 self.publish(generation, available=True)
                 if not accepted or time.monotonic()-started > 0.75:
                     self.verified_count = 0
@@ -332,6 +400,7 @@ class PositionController:
                     self.publish(generation, status='Konum değişti, merkezi kontrol edin' if self.filter.outliers >= 3 else 'Koordinat okunamıyor')
                     if self.filter.outliers >= 3:
                         self.failure = 'Konum değişti, merkezi kontrol edin'
+                    self.continue_estimate(generation)
                 else:
                     self.publish(generation, point=point, stamp=started,
                                  distance=distance(point, config.center) if config.center else None)

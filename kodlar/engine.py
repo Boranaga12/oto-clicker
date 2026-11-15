@@ -20,6 +20,7 @@ from .workers import KeyClickerWorker, StepResult, MOUSE_NAMES
 from .writing import WritingGate
 from .position_controller import PositionController
 from .position_model import PositionConfig
+from .tab_watchdog import TabWatchdog
 from .platform_win import foreground_window, foreground_is_ours
 from .sequences import writing_layout
 
@@ -75,6 +76,7 @@ class RandomizedAutoClicker:
         self.input_lock = threading.RLock()
         self.writing_gate = WritingGate()
         self.position_controller = PositionController(self)
+        self.tab_watchdog = TabWatchdog(self)
         self._writing_target = None
         self.last_toggle_at = 0.0
         self.manual_enabled = False
@@ -232,6 +234,7 @@ class RandomizedAutoClicker:
         elif reason:
             self.log(reason)
         if not previous and active:
+            self.tab_watchdog.start_session()
             for group in self.sequence_groups:
                 if not self.is_running:
                     break
@@ -305,10 +308,27 @@ class RandomizedAutoClicker:
                 self._runtime_enabled[macro_id] = False
 
     def observe_input_target(self):
-        if self._writing_target is None and any(g.writing_blocks for g in self.sequence_groups):
+        if self._writing_target is None and (any(g.writing_blocks for g in self.sequence_groups)
+                or any(c.key.strip().lower() == 'tab' and c.screen_mode for c in self.key_configs)):
             target = foreground_window()
             if target is not None and not foreground_is_ours():
                 self._writing_target = target
+
+    def is_toggle_macro(self, config):
+        return config.key.strip().lower() == self.app_config.panic_key.strip().lower()
+
+    def macro_key_sent(self, config):
+        self.tab_watchdog.record(config)
+        if not self.is_toggle_macro(config):
+            return
+        # Do not join a runner while this input transaction owns the gate.
+        with self.state_lock:
+            self.manual_enabled = False
+            self.enabled_event.clear()
+            self._runtime_enabled.clear()
+        self.sequence_runner._stop_event.set()
+        self.position_controller.running_changed(False)
+        self._publish_state(False, 'Aç/kapa makrosu çalıştı; sistem durduruldu.')
 
     def abort_writing(self, reason):
         # Never join another runner while this thread owns the writing gate.
@@ -523,6 +543,10 @@ class RandomizedAutoClicker:
             return
         if self._consume_injected_input("key", key_name):
             return
+        if key_name == 'tab' and self.is_running:
+            for config in self.key_configs:
+                if config.key.strip().lower() == 'tab':
+                    self.tab_watchdog.record(config)
         if self.pixel_capture_callback is not None and key_name == "esc" and not self.is_running:
             self.pixel_capture_callback = None
             self._pixel_capture_down = None

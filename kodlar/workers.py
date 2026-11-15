@@ -188,6 +188,9 @@ class KeyClickerWorker(StoppableWorker):
                     self.wait(random.uniform(0.02, 0.05))
                 finally:
                     self.keyboard_controller.release(key)
+                callback = getattr(self.clicker, 'macro_key_sent', None)
+                if callback is not None:
+                    callback(self.config)
             self.clicker.log_activity(
                 self.config.id_token,
                 f"Tuş: {self.config.key.upper()}",
@@ -238,7 +241,8 @@ class KeyClickerWorker(StoppableWorker):
                     self.wait(0.1)
 
     def _can_run(self) -> bool:
-        if self.stop_event.is_set() or not self.clicker.enabled_event.is_set() or not self.clicker.is_config_enabled(self.config):
+        forced_tab = getattr(self, 'watchdog_owner', None) == threading.get_ident()
+        if self.stop_event.is_set() or not self.clicker.enabled_event.is_set() or (not forced_tab and not self.clicker.is_config_enabled(self.config)):
             return False
         if not self.is_mouse and time.monotonic() < self.clicker.mute_all_keys_until:
             return False
@@ -273,6 +277,14 @@ class KeyClickerWorker(StoppableWorker):
             LOGGER.info("İzleme %s: hedef=%s okunan=%s durum=%s ekran=%s; %s",
                         self.config.id_token, target, color, status, bounds, foreground_description())
 
+    def color_allows(self, color, target):
+        if not color:
+            return False
+        matched = is_color_close(color, target, threshold=MONITOR_COLOR_TOLERANCE)
+        toggle = getattr(self.clicker, 'is_toggle_macro', None)
+        # Mock and legacy contexts need an actual boolean, not a truthy sentinel.
+        return matched if toggle is not None and toggle(self.config) is True else not matched
+
     def _run_screen_mode(self, pixels: PixelSampler) -> None:
         # Repeat while the condition holds; never queue presses after recovery.
         last_report = None
@@ -296,7 +308,7 @@ class KeyClickerWorker(StoppableWorker):
                 self.wait(0.1)
                 continue
 
-            if is_color_close(color, target[2], threshold=MONITOR_COLOR_TOLERANCE):
+            if not self.color_allows(color, target[2]):
                 self.wait(0.05)
                 continue
 
@@ -311,7 +323,7 @@ class KeyClickerWorker(StoppableWorker):
                 if target[3] is not None and current_bounds is not None and current_bounds != target[3]:
                     return True
                 current = pixels.get(target[0], target[1])
-                return not current or is_color_close(current, target[2], threshold=MONITOR_COLOR_TOLERANCE)
+                return not self.color_allows(current, target[2])
 
             if (
                 self._interruptible_delay(delay, color_returned)
@@ -333,8 +345,7 @@ class KeyClickerWorker(StoppableWorker):
             return False
         with PixelSampler() as pixels:
             color = pixels.get(self.config.pixel_x, self.config.pixel_y)
-        return bool(color and not is_color_close(color, self.config.target_color,
-                                               threshold=MONITOR_COLOR_TOLERANCE))
+        return self.color_allows(color, self.config.target_color)
 
     def press_once(self, cancel: threading.Event) -> StepResult:
         """A group owns this worker and executes a single step synchronously."""
@@ -356,7 +367,7 @@ class KeyClickerWorker(StoppableWorker):
                         return False
                     current = pixels.get(target[0], target[1])
                     self.report_pixel(current, target, bounds)
-                    return bool(current and not is_color_close(current, target[2], threshold=MONITOR_COLOR_TOLERANCE))
+                    return self.color_allows(current, target[2])
                 sent = self.press_key(before_press=changed)
         else:
             sent = self.press_key(before_press=allowed)

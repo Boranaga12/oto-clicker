@@ -61,6 +61,18 @@ class PositionModelTests(unittest.TestCase):
         config = PositionConfig(monitors=((-1920, 0, 0, 1080), (0, 0, 1920, 1080)))
         self.assertEqual(PositionConfig.from_dict(config.to_dict()).monitors, config.monitors)
 
+    def test_digit_holes_reject_six_eight_confusion_without_rewriting_digits(self):
+        self.assertFalse(CoordinateOCR.shape_allows('78.6 61.2', [[0, 1, 1, 1, 0, 0]]*2))
+        self.assertFalse(CoordinateOCR.shape_allows('76.6 61.2', [[0, 2, 1, 1, 0, 0]]*2))
+        self.assertTrue(CoordinateOCR.shape_allows('76.6 61.2', [[0, 1, 1, 1, 0, 0]]*2))
+
+    def test_single_stationary_digit_jump_requires_confirmation(self):
+        samples = ReadingFilter()
+        self.assertTrue(samples.accept((76.6, 61.2), 1))
+        self.assertFalse(samples.accept((78.6, 61.2), 1.25))
+        self.assertTrue(samples.accept((76.6, 61.2), 1.5))
+        self.assertEqual(samples.last[0], (76.6, 61.2))
+
     def test_turns_are_rotation_followed_by_forward_motion(self):
         steering = Steering()
         config = PositionConfig(center=(0, 0))
@@ -70,7 +82,7 @@ class PositionModelTests(unittest.TestCase):
         self.assertEqual([key for key, _ in commands], ['a', 'w'])
         steering.observe((13, 0), (13, 1), (0, 0), ('a', .08))
         self.assertIsNotNone(steering.a_rate)
-        self.assertTrue(all(0 < duration <= .3 for _, duration in steering.commands((13, 1), config)))
+        self.assertTrue(all(.1 <= duration <= .4 for _, duration in steering.commands((13, 1), config)))
 
 
 class PositionPriorityTests(unittest.TestCase):
@@ -109,6 +121,32 @@ class PositionPriorityTests(unittest.TestCase):
         self.assertTrue(controller.gate.allowed())
         controller.gate.position_valid_until = time.monotonic()-1
         self.assertFalse(controller.gate.allowed())
+
+    def test_short_ocr_gap_predicts_without_releasing_normal_macros(self):
+        controller = self.controller()
+        controller.target = 100
+        controller.returning = True
+        controller.filter.accept((11, 0), time.monotonic())
+        controller.pulse = Mock(return_value=True)
+        with patch('kodlar.position_controller.foreground_window', return_value=100):
+            self.assertTrue(controller.continue_estimate(1))
+            self.assertFalse(controller.gate.allowed())
+            controller.continue_estimate(1)
+            controller.continue_estimate(1)
+            self.assertFalse(controller.continue_estimate(1))
+        self.assertLessEqual(controller.blind_spent, .6)
+
+    def test_prediction_expires_and_cannot_cross_writing_barrier(self):
+        controller = self.controller()
+        controller.target = 100
+        controller.returning = True
+        controller.pulse = Mock()
+        controller.filter.accept((11, 0), time.monotonic()-3)
+        self.assertFalse(controller.continue_estimate(1))
+        controller.filter.accept((11, 0), time.monotonic())
+        controller.gate.position_epoch = time.monotonic()+1
+        self.assertFalse(controller.continue_estimate(1))
+        controller.pulse.assert_not_called()
 
     def test_stop_cancels_walking_without_releasing_unowned_keys(self):
         controller = self.controller()
@@ -232,6 +270,8 @@ class KarosScreenshotOCRTests(unittest.TestCase):
         for name, region, expected in (
             ('karos-67.png', (15, 16, 82, 16), (67.6, 77.5)),
             ('karos-69.png', (39, 23, 81, 17), (69.0, 87.1)),
+            ('karos-76.png', (10, 10, 82, 18), (76.6, 61.2)),
+            ('karos-75.png', (26, 25, 81, 17), (75.7, 53.0)),
         ):
             with self.subTest(image=name):
                 encoded = base64.b64encode((fixtures/name).read_bytes()).decode('ascii')

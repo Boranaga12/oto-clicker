@@ -60,6 +60,18 @@ yapılır. Ek Python paketi veya bulut servisi kullanılmaz. Windows OCR dili yo
 kart açıklamayla pasif kalır; Windows dil ayarlarından OCR destekli bir dil
 kurulmalıdır. Görüntüler diske veya ağa gönderilmez.
 
+Kısa OCR kesintilerinde dönüş iptal edilmez: son doğrulanmış konumdan en fazla
+2,5 saniyelik pencere içinde toplam 0,6 saniye ek W hareketi yapılabilir. Hız
+biliniyorsa tahmini ek yol 1,5 koordinat birimiyle de sınırlanır. Tahmini varış
+normal makroları açmaz; yeniden gerçek koordinat okunmalıdır. Yazı, odak kaybı
+ve durdurma bu hareketi derhal keser.
+
+Aç/kapa kısayoluna atanmış makro gönderildiğinde sistem kendini durdurur. Bu
+kartın izlemesi seçilen renk **bulununca** çalışır. Diğer kartlar renk farklıyken
+çalışmaya devam eder. İzlemesi açık Tab, dört etkin saniye basılmadığında bir
+yedek basış yapar; yazı bölümlerinin içindeki Tab bundan muaftır. Yazı ve
+yürüyüşte geçen süre bu dört saniyeye eklenmez.
+
 ## Sıralı grupların kullanımı
 
 1. `+ Grup` ile bir ana grup oluşturun.

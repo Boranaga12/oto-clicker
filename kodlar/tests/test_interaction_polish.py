@@ -61,6 +61,12 @@ class InteractionPolishTests(unittest.TestCase):
         self.app.update_group_states()
         self.assertEqual(outer.cget('bg'), '#60738b')
 
+    def test_inactive_position_card_is_faded_but_still_editable(self):
+        panel = self.app.position_panel
+        self.assertTrue(panel._faded)
+        self.assertEqual(panel.select.cget('state'), 'normal')
+        self.assertEqual(self.app.content_split.cget('sashcursor'), 'arrow')
+
     def test_log_panel_height_is_saved_and_does_not_hide_list(self):
         height = self.app.content_split.winfo_height()
         self.app.content_split.sash_place(0, 0, height-157)

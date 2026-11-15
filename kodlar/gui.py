@@ -270,7 +270,7 @@ class ClickerApp:
         self.content_split = tk.PanedWindow(
             self.root, orient="vertical", bg=self.border_color, sashwidth=7,
             sashrelief="flat", showhandle=True, handlesize=10, bd=0,
-            opaqueresize=True, cursor="arrow", sashcursor="sb_v_double_arrow",
+            opaqueresize=True, cursor="arrow", sashcursor="arrow",
         )
         self.content_split.pack(fill="both", expand=True, padx=10, pady=(5, 10))
         self.list_container = ScrollableFrame(self.content_split, background=self.bg_color)
@@ -1759,7 +1759,7 @@ class ClickerApp:
             command=lambda cfg=config, lbl=loc_lbl: self.reset_click_coordinate(cfg, lbl))
         reset_btn.pack(side="left", padx=2)
         widgets = dict(card=card, chk_var=var, chk=chk, key_btn=key_btn,
-            int_entry=int_entry, rand_entry=rand_entry, screen_var=screen_var,
+            int_entry=int_entry, rand_entry=rand_entry, screen_var=screen_var, screen_check=chk_screen,
             screen_frame=screen_frame, coord_lbl=coord_lbl, color_preview=color_preview,
             pixel_btn=pixel_btn, click_frame=click_frame, loc_lbl=loc_lbl, loc_btn=loc_btn,
             writing_check=writing_check, handle=handle, arrows=arrows, rail=rail,
@@ -1776,7 +1776,7 @@ class ClickerApp:
         signature = (config.key, config.interval_seconds, config.random_seconds, config.enabled,
             config.screen_mode, config.pixel_x, config.pixel_y, config.target_color,
             config.click_x, config.click_y, role, label, blocked, group.enabled if group else True,
-            self.clicker.position_manages_config(config))
+            self.clicker.position_manages_config(config), self.clicker.app_config.panic_key)
         previous = widgets["signature"]
         if signature == previous:
             return
@@ -1789,6 +1789,7 @@ class ClickerApp:
                 entry.insert(0, f"{signature[index]:.3f}")
         widgets["chk_var"].set(int(config.enabled))
         widgets["screen_var"].set(int(config.screen_mode))
+        widgets['screen_check'].configure(text='Renk bulununca' if self.clicker.is_toggle_macro(config) else 'İzleme')
         widgets["coord_lbl"].configure(text=f"({config.pixel_x}, {config.pixel_y})" if config.has_pixel_target else "—")
         widgets["loc_lbl"].configure(text=f"({config.click_x}, {config.click_y})" if config.has_click_target else "İmleç")
         if previous is None or signature[7] != previous[7]:

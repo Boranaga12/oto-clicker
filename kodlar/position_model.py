@@ -77,17 +77,32 @@ class ReadingFilter:
         self.last = None
         self.stable = []
         self.outliers = 0
+        self.candidate = None
 
-    def accept(self, point, stamp):
+    def accept(self, point, stamp, *, moving=False, expected_speed=None):
         if point is None:
-            self.stable.clear()
+            if self.last is None or stamp-self.last[1] > .75:
+                self.stable.clear()
+            self.candidate = None
             return False
         if self.last:
             old, previous = self.last
-            if distance(old, point) > max(3.0, (stamp-previous)*25):
+            if stamp-previous > .9:
+                self.stable.clear()
+            delta = distance(old, point)
+            limit = max(3.0, (stamp-previous)*25)
+            if moving and expected_speed:
+                limit = min(limit, max(1.0, (stamp-previous)*expected_speed*2+.3))
+            if delta > limit:
                 self.outliers += 1
                 self.stable.clear()
                 return False
+            if not moving and delta > .5:
+                if self.candidate is None or distance(self.candidate, point) > .3:
+                    self.candidate = point
+                    self.stable.clear()
+                    return False
+        self.candidate = None
         self.outliers = 0
         self.last = (point, stamp)
         if self.stable and any(distance(previous, point) > 0.3 for previous in self.stable):

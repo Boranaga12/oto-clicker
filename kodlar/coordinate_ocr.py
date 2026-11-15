@@ -48,11 +48,12 @@ using System.IO;
 using System.Runtime.InteropServices;
 using System.Collections.Generic;
 public static class CoordinateFrames {
+ public class Batch { public string[] Frames; public int[][] Shapes; }
  [DllImport("user32.dll")] static extern bool SetProcessDpiAwarenessContext(IntPtr context);
  static CoordinateFrames() {
   try { SetProcessDpiAwarenessContext(new IntPtr(-4)); } catch(EntryPointNotFoundException) { }
  }
- public static string[] Make(int x, int y, int w, int h, string image) {
+ public static Batch Make(int x, int y, int w, int h, string image) {
   using (Bitmap source = new Bitmap(w,h,PixelFormat.Format32bppArgb)) {
    using (Graphics g = Graphics.FromImage(source)) {
     if (String.IsNullOrEmpty(image)) g.CopyFromScreen(x,y,0,0,new Size(w,h),CopyPixelOperation.SourceCopy);
@@ -60,6 +61,7 @@ public static class CoordinateFrames {
      using (Bitmap input = new Bitmap(stream)) g.DrawImage(input,new Rectangle(0,0,w,h),new Rectangle(x,y,w,h),GraphicsUnit.Pixel);
    }
    List<string> frames = new List<string>();
+   List<int[]> shapes = new List<int[]>();
    frames.Add(Encode(source, false, 4));
    foreach(int threshold in new int[]{165,145,125})
    using (Bitmap mask = new Bitmap(w,h,PixelFormat.Format32bppArgb)) {
@@ -75,12 +77,59 @@ public static class CoordinateFrames {
     }
     BitmapData dst=mask.LockBits(rect,ImageLockMode.WriteOnly,PixelFormat.Format32bppArgb);
     try { Marshal.Copy(data,0,dst.Scan0,data.Length); } finally { mask.UnlockBits(dst); }
+    if(threshold>=145) shapes.Add(Holes(mask));
     frames.Add(Encode(mask, true, 4, true));
     frames.Add(Encode(mask, true, 4));
     frames.Add(Encode(mask, true, 6));
    }
-   return frames.ToArray();
+   return new Batch {Frames=frames.ToArray(), Shapes=shapes.ToArray()};
   }
+ }
+ static int[] Holes(Bitmap mask) {
+  int w=mask.Width,h=mask.Height;
+  bool[] visited=new bool[w*h];
+  List<int[]> boxes=new List<int[]>();
+  Queue<int> queue=new Queue<int>();
+  for(int y=0;y<h;y++) for(int x=0;x<w;x++) {
+   int at=y*w+x;
+   if(visited[at] || mask.GetPixel(x,y).R!=0) continue;
+   int left=x,right=x,top=y,bottom=y;
+   visited[at]=true;queue.Enqueue(at);
+   while(queue.Count>0) {
+    int p=queue.Dequeue(),px=p%w,py=p/w;
+    left=Math.Min(left,px);right=Math.Max(right,px);top=Math.Min(top,py);bottom=Math.Max(bottom,py);
+    for(int dy=-1;dy<=1;dy++) for(int dx=-1;dx<=1;dx++) {
+     int nx=px+dx,ny=py+dy;
+     if(nx<0 || ny<0 || nx>=w || ny>=h) continue;
+     int n=ny*w+nx;
+     if(!visited[n] && mask.GetPixel(nx,ny).R==0) {visited[n]=true;queue.Enqueue(n);}
+    }
+   }
+   if(bottom-top>=4 && right-left>=1) boxes.Add(new int[]{left,top,right,bottom});
+  }
+  boxes.Sort((a,b)=>a[0].CompareTo(b[0]));
+  List<int> result=new List<int>();
+  foreach(int[] box in boxes) {
+   int bw=box[2]-box[0]+1,bh=box[3]-box[1]+1,holes=0;
+   bool[] seen=new bool[bw*bh];
+   for(int y=0;y<bh;y++) for(int x=0;x<bw;x++) {
+    int at=y*bw+x;
+    if(seen[at] || mask.GetPixel(box[0]+x,box[1]+y).R==0) continue;
+    bool boundary=false;queue.Enqueue(at);seen[at]=true;
+    while(queue.Count>0) {
+     int p=queue.Dequeue(),px=p%bw,py=p/bw;
+     if(px==0 || py==0 || px==bw-1 || py==bh-1) boundary=true;
+     foreach(int step in new int[]{-1,1,-bw,bw}) {
+      int n=p+step;
+      if(n<0 || n>=bw*bh || (Math.Abs(step)==1 && Math.Abs(n%bw-px)!=1)) continue;
+      if(!seen[n] && mask.GetPixel(box[0]+n%bw,box[1]+n/bw).R!=0) {seen[n]=true;queue.Enqueue(n);}
+     }
+    }
+    if(!boundary) holes++;
+   }
+   result.Add(holes);
+  }
+  return result.ToArray();
  }
  static string Encode(Bitmap source, bool mask, int scale, bool reinforce=false) {
   using(Bitmap scaled=new Bitmap(source.Width*scale+32,source.Height*scale+32,PixelFormat.Format32bppArgb)) {
@@ -122,7 +171,8 @@ public static class CoordinateFrames {
    $request = $line | ConvertFrom-Json
    $r = $request.region
    if ($r.Count -ne 4 -or $r[2] -lt 8 -or $r[2] -gt 640 -or $r[3] -lt 8 -or $r[3] -gt 180) { throw 'Invalid coordinate region' }
-   $frames = [CoordinateFrames]::Make($r[0],$r[1],$r[2],$r[3],$request.image)
+   $batch = [CoordinateFrames]::Make($r[0],$r[1],$r[2],$r[3],$request.image)
+   $frames = $batch.Frames
    $texts = @()
    $indices = @(0..($frames.Length-1))
    if ($request.preferred -and $request.preferred.Count -ge 2) { $indices = @($request.preferred) }
@@ -145,7 +195,7 @@ public static class CoordinateFrames {
      $writer.Dispose(); $stream.Dispose()
     }
    }
-   [Console]::WriteLine((@{id=$request.id; texts=$texts; indices=$indices} | ConvertTo-Json -Compress))
+   [Console]::WriteLine((@{id=$request.id; texts=$texts; indices=$indices; shapes=$batch.Shapes} | ConvertTo-Json -Depth 5 -Compress))
   } catch { [Console]::WriteLine((@{id=$request.id; error=$_.Exception.Message} | ConvertTo-Json -Compress)) }
  }
 } catch { [Console]::WriteLine((@{ready=$false; error=$_.Exception.Message} | ConvertTo-Json -Compress)) }
@@ -161,6 +211,19 @@ class CoordinateOCR:
         self.last_texts = []
         self.preferred = None
         self.region = None
+
+    @staticmethod
+    def shape_allows(text, shapes):
+        digits = [char for char in text if char.isdigit()]
+        comparable = [shape for shape in shapes if len(shape) == len(digits)]
+        if len(comparable) < 2:
+            return True
+        for index, digit in enumerate(digits):
+            holes = [shape[index] for shape in comparable]
+            if (digit == '6' and all(count == 2 for count in holes)
+                    or digit == '8' and all(count == 1 for count in holes)):
+                return False
+        return True
 
     def _receive(self, process, responses):
         try:
@@ -215,7 +278,8 @@ class CoordinateOCR:
                 if response.get('id') != self.serial or 'error' in response:
                     raise RuntimeError(response.get('error', 'Geçersiz OCR yanıtı'))
                 self.last_texts = response.get('texts', [])
-                points = [parse_coordinates(text) for text in self.last_texts]
+                points = [parse_coordinates(text) if self.shape_allows(text, response.get('shapes', []))
+                          else None for text in self.last_texts]
                 indexed = dict(zip(response['indices'], points))
                 primary = indexed.get(1)
                 if primary is not None:

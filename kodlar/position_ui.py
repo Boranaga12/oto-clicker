@@ -175,6 +175,7 @@ class PositionPanel(tk.Frame):
                 entry.insert(0, f'{value:g}')
         self.engine.position_controller.configure(profile, model)
         self.draw_border()
+        self.app.fade_widgets(self, not model.enabled)
 
     def persist(self):
         self.app.position_config = self.model
