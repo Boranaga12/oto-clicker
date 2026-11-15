@@ -159,6 +159,15 @@ class PositionPanel(tk.Frame):
         self.error_label = tk.Label(self, text='', bg=app.card_color, fg=app.danger_color,
                                     anchor='w', wraplength=420, font=('Segoe UI', 8))
         self.error_label.pack(fill='x')
+        self.ocr_help = tk.Frame(self, bg=app.card_color)
+        self.retry = tk.Button(self.ocr_help, text='OCR’yi Yeniden Dene',
+            command=self.engine.position_controller.retry_ocr, bg=app.input_bg, fg=app.text_primary, bd=0)
+        self.retry.pack(side='left', padx=(0, 8), pady=3)
+        self.language_settings = tk.Button(self.ocr_help, text='Windows Dil Ayarları',
+            command=self.open_language_settings, bg=app.input_bg, fg=app.text_primary, bd=0)
+        self.language_settings.pack(side='left', pady=3)
+        self.ocr_detail = tk.Label(self, text='', bg=app.card_color, fg=app.text_secondary,
+                                   anchor='w', justify='left', wraplength=420, font=('Segoe UI', 8))
         self.job = self.after(100, self.poll)
 
     def set_profile(self, profile, model):
@@ -178,6 +187,7 @@ class PositionPanel(tk.Frame):
         self.app.fade_widgets(self, not model.enabled)
 
     def persist(self):
+        self.pending_center = False
         self.app.position_config = self.model
         self.app.save_current_configs_to_profiles()
         self.engine.position_controller.configure(self.profile, self.model)
@@ -188,13 +198,16 @@ class PositionPanel(tk.Frame):
         if self.engine.is_running:
             self.enabled.set(int(self.model.enabled))
             return
-        state = self.engine.position_controller.state()
-        if self.enabled.get() and (not self.model.ready or state.get('available') is not True):
-            self.enabled.set(0)
-            self.status.configure(text='Alanı seçin, güncel konumu merkez olarak kaydedin.')
-            return
         self.model.enabled = bool(self.enabled.get())
         self.persist()
+
+    def open_language_settings(self):
+        try:
+            if os.name != 'nt':
+                raise OSError('Windows dil ayarları yalnızca Windows üzerinde açılabilir.')
+            os.startfile('ms-settings:regionlanguage')
+        except OSError as error:
+            self.error_label.configure(text=str(error))
 
     def save_limits(self, _event=None):
         if self.model is None or self.engine.is_running:
@@ -239,7 +252,7 @@ class PositionPanel(tk.Frame):
         self.persist()
 
     def take_center(self):
-        if self.engine.is_running or not self.model.region:
+        if self.engine.is_running or not self.model.region or self.pending_center:
             return
         self.pending_center = True
         self.error_label.configure(text='')
@@ -266,12 +279,14 @@ class PositionPanel(tk.Frame):
             state = self.engine.position_controller.state()
             running = self.engine.is_running
             for widget in (self.select, self.remove, self.center, *self.entries):
-                widget.configure(state='disabled' if running else 'normal')
-            ready = self.model.ready and state.get('available') is True
-            self.check.configure(state='normal' if not running and (ready or self.model.enabled) else 'disabled')
+                busy = running or (self.pending_center and widget is self.center)
+                widget.configure(state='disabled' if busy else 'normal')
+            self.check.configure(state='disabled' if running else 'normal')
             if self.selector is not None and running:
                 self.cancel_selection()
             if state.get('profile') == self.profile:
+                if self.pending_center:
+                    self.status.configure(text=f"Merkez doğrulanıyor: {state.get('center_progress', 0)}/3 · Karakteri sabit tutun")
                 candidate = state.get('center_candidate')
                 if self.pending_center and state.get('center_error'):
                     self.pending_center = False
@@ -296,7 +311,18 @@ class PositionPanel(tk.Frame):
                 suffix = f'   Uzaklık: {gap:.1f}' if gap is not None and fresh else ''
                 self.readout.configure(text=f'Merkez: {reference}\nŞimdi:  {current}{suffix}')
                 if not self.pending_center:
-                    self.status.configure(text=state.get('status', 'Alan seçin'))
+                    issue = self.engine.position_controller.activation_issue(state) if not running else None
+                    self.status.configure(text=issue or state.get('status', 'Alan seçin'))
+                if state.get('available') is False:
+                    self.ocr_help.pack(fill='x')
+                    detail = str(state.get('error') or '')[:240]
+                    self.ocr_detail.configure(text='Ayrıntı: '+detail if detail else '')
+                    self.ocr_detail.pack(fill='x')
+                else:
+                    self.ocr_help.pack_forget()
+                    self.ocr_detail.pack_forget()
+                self.retry.configure(state='disabled' if running else 'normal')
+                self.language_settings.configure(state='disabled' if running else 'normal')
             self.draw_border()
         self.job = self.after(150, self.poll)
 

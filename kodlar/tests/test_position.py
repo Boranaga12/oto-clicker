@@ -9,7 +9,7 @@ from types import SimpleNamespace
 import unittest
 from unittest.mock import Mock, patch
 
-from kodlar.coordinate_ocr import CoordinateOCR
+from kodlar.coordinate_ocr import CoordinateOCR, ocr_error_message
 from kodlar.position_model import PositionConfig, ReadingFilter, parse_coordinates
 from kodlar.position_controller import PositionController, Steering
 from kodlar.profile_store import _normalise
@@ -22,6 +22,11 @@ from kodlar.walking_input import ContinuousWalker, WalkRequest
 
 
 class PositionModelTests(unittest.TestCase):
+    def test_ocr_errors_explain_missing_language_and_security_separately(self):
+        self.assertIn('Metin Tanıma', ocr_error_message(RuntimeError('Windows OCR language is not installed')))
+        self.assertIn('PowerShell bulunamadı', ocr_error_message(FileNotFoundError('missing powershell.exe')))
+        self.assertIn('güvenlik', ocr_error_message(RuntimeError('only core types in this language mode')))
+
     def test_coordinates_require_two_numbers_with_decimal_points(self):
         self.assertEqual(parse_coordinates('67.6 77.5'), (67.6, 77.5))
         self.assertEqual(parse_coordinates('69.0 87.1'), (69.0, 87.1))
@@ -62,6 +67,17 @@ class PositionModelTests(unittest.TestCase):
             self.assertTrue(samples.accept((67.6, 77.5), stamp))
         self.assertEqual(len(samples.stable), 3)
         self.assertFalse(samples.accept((176.6, 177.5), 1.75))
+        self.assertEqual(samples.stable, [])
+
+    def test_slow_consistent_center_reads_survive_brief_ocr_gaps(self):
+        samples = ReadingFilter()
+        self.assertTrue(samples.accept((71.9, 57.2), 1))
+        self.assertFalse(samples.accept(None, 2))
+        self.assertTrue(samples.accept((71.9, 57.2), 2.5))
+        self.assertFalse(samples.accept(None, 3.5))
+        self.assertTrue(samples.accept((71.9, 57.2), 4))
+        self.assertEqual(len(samples.stable), 3)
+        self.assertFalse(samples.accept(None, 9))
         self.assertEqual(samples.stable, [])
 
     def test_center_request_resets_previous_teleport_failure(self):
@@ -111,6 +127,20 @@ class PositionPriorityTests(unittest.TestCase):
         controller.gate.position_valid_until = time.monotonic()+.75
         controller.motion = Mock(holding=False, turning=False, total=0.0)
         return controller
+
+    def test_activation_explains_missing_settings_without_disabling_preference(self):
+        controller = self.controller()
+        controller.config.region = None
+        self.assertIn('Konumu Seç', controller.activation_issue())
+        self.assertTrue(controller.config.enabled)
+
+    def test_activation_explains_ocr_error_and_pending_startup(self):
+        controller = self.controller()
+        with patch('kodlar.position_controller.screen_bounds', return_value=controller.config.display):
+            self.assertIn('OCR hazırlanıyor', controller.activation_issue({'available': None}))
+            self.assertEqual(controller.activation_issue({'available': False, 'ocr_message': 'OCR dili eksik'}), 'OCR dili eksik')
+            self.assertIsNone(controller.activation_issue({'available': True}))
+        self.assertTrue(controller.config.enabled)
 
     def test_writing_end_keeps_normal_input_blocked_until_new_position(self):
         controller = self.controller()
@@ -358,3 +388,4 @@ class KarosScreenshotOCRTests(unittest.TestCase):
                 encoded = base64.b64encode((fixtures/name).read_bytes()).decode('ascii')
                 point = self.reader.read(region, encoded)
                 self.assertEqual(point, expected, repr(self.reader.last_texts))
+                self.assertEqual(self.reader.read(region, encoded), expected, 'Cached OCR preparation changed the reading')

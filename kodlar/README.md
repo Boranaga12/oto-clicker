@@ -64,6 +64,15 @@ yapılır. Ek Python paketi veya bulut servisi kullanılmaz. Windows OCR dili yo
 kart açıklamayla pasif kalır; Windows dil ayarlarından OCR destekli bir dil
 kurulmalıdır. Görüntüler diske veya ağa gönderilmez.
 
+Aktif kutusu sistem duruyorken her zaman açılıp kapatılabilir; eksik ayarlar
+bu tercihi sıfırlamaz. Kartın durum satırı eksik alanı, merkezi veya OCR sorununu
+açıklar. Eksik gereksinimler tamamlanmadan sistem başlamaz. OCR sorunu varsa
+karttaki ayrıntıyı kontrol edin; **Windows Dil Ayarları** ile OCR destekli bir
+dilin Metin Tanıma bileşenini yükleyip **OCR’yi Yeniden Dene** düğmesini kullanın.
+İngilizce ABD yoksa bilgisayarda yüklü diğer OCR dilleri otomatik denenir.
+Yavaş bilgisayarlarda merkez için 45 saniyeye kadar beklenir; doğrulanan okuma
+sayısı kartta 0/3 olarak gösterilir. Kısa okuma araları tutarlı ölçümleri silmez.
+
 Kısa OCR kesintilerinde dönüş iptal edilmez: son doğrulanmış konumdan sekiz
 saniyeye kadar aynı yürüyüş sürdürülür. Öğrenilen hız/yön varsa tahmini varışta
 gerçek ölçüm beklenir; tahmin normal makroları açmaz. Daha uzun kesintide W
@@ -74,7 +83,9 @@ eksik alan veya merkez tamamlanana kadar sistemin başlaması engellenir.
 Aç/kapa kısayoluna atanmış makro gönderildiğinde sistem kendini durdurur. Bu
 kartın izlemesi seçilen renk **bulununca** çalışır. Diğer kartlar renk farklıyken
 çalışmaya devam eder. İzlemesi açık Tab, dört etkin saniye basılmadığında bir
-yedek basış yapar; yazı bölümlerinin içindeki Tab bundan muaftır. Yazı ve
+yedek basış yapar. Bu süre yalnızca Tab kartlarında görünen **Tab yenilenme (sn)**
+alanından değiştirilebilir; varsayılan 4 saniyedir. Yazı bölümlerinin içindeki
+Tab bundan muaftır. Yazı ve
 yürüyüşte geçen süre bu dört saniyeye eklenmez.
 
 ## Sıralı grupların kullanımı

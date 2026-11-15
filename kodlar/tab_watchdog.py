@@ -1,4 +1,4 @@
-"""A single Tab fallback per four seconds of unpaused macro time."""
+"""A single Tab fallback after the configured unpaused interval."""
 from __future__ import annotations
 
 import threading
@@ -30,7 +30,7 @@ class TabWatchdog:
 
     def due(self, config):
         with self.lock:
-            return self.engine.writing_gate.clock()-self.last.get(config.id_token, self.started) >= 4
+            return self.engine.writing_gate.clock()-self.last.get(config.id_token, self.started) >= config.tab_refresh_seconds
 
     def eligible(self, config):
         if config.key.strip().lower() != 'tab' or not config.screen_mode or not config.enabled or not config.has_pixel_target:

@@ -35,6 +35,20 @@ class MacroBehaviourTests(unittest.TestCase):
         self.assertFalse(worker.color_allows('#ffffff', '#ffffff'))
         self.assertTrue(worker.color_allows('#000000', '#ffffff'))
 
+    def test_tab_refresh_interval_is_saved_and_controls_the_fallback(self):
+        from kodlar.models import key_config_from_dict, key_config_to_dict
+        config = KeyConfig('tab', 1, 0, tab_refresh_seconds=7.5)
+        restored = key_config_from_dict(key_config_to_dict(config))
+        self.assertEqual(restored.tab_refresh_seconds, 7.5)
+        self.assertEqual(key_config_from_dict({'key': 'tab'}).tab_refresh_seconds, 4)
+        self.assertEqual(key_config_from_dict({'key': 'tab', 'tab_refresh_seconds': 'nan'}).tab_refresh_seconds, 4)
+        timer = self.engine.tab_watchdog
+        timer.started = 100
+        with patch.object(self.engine.writing_gate, 'clock', return_value=107.4):
+            self.assertFalse(timer.due(config))
+        with patch.object(self.engine.writing_gate, 'clock', return_value=107.5):
+            self.assertTrue(timer.due(config))
+
     def test_tab_timeout_excludes_writing_and_movement_pause(self):
         timer = self.engine.tab_watchdog
         gate = self.engine.writing_gate

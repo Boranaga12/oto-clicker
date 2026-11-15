@@ -6,7 +6,7 @@ import math
 import threading
 import time
 
-from .coordinate_ocr import CoordinateOCR
+from .coordinate_ocr import CoordinateOCR, ocr_error_message
 from .platform_win import foreground_window, foreground_is_ours, screen_bounds, window_at_point, monitor_layout
 from .position_model import PositionConfig, ReadingFilter, distance
 from .walking_input import ContinuousWalker
@@ -71,6 +71,7 @@ class Steering:
 class PositionController:
     FRESH_SECONDS = 1.5
     READ_GRACE = 8.0
+    CENTER_TIMEOUT = 45.0
 
     def __init__(self, engine, reader_factory=CoordinateOCR):
         self.engine = engine
@@ -112,6 +113,10 @@ class PositionController:
         with self.lock:
             if self.profile == profile and self.config == config:
                 return
+            same_source = (self.profile == profile and self.config.region == config.region
+                           and self.config.display == config.display and self.config.monitors == config.monitors)
+            reader_state = {key: self.snapshot[key] for key in ('available', 'error', 'ocr_message')
+                            if key in self.snapshot} if same_source else {}
             self.motion.halt()
             self.generation += 1
             self.profile = profile
@@ -122,6 +127,7 @@ class PositionController:
             self.snapshot = {'generation': self.generation, 'profile': profile,
                 'status': 'Konum okunuyor' if config.region else 'Alan seçin',
                 'available': None, 'point': None, 'distance': None}
+            self.snapshot.update(reader_state)
             self.gate.position_enabled = self.config.enabled
             self.gate.set_position_blocked(self.config.enabled and self.engine.is_running)
             if self.thread is None:
@@ -132,6 +138,32 @@ class PositionController:
     def state(self):
         with self.lock:
             return dict(self.snapshot)
+
+    def activation_issue(self, state=None):
+        """Readiness never changes the user's enabled preference."""
+        config = self.config
+        state = self.state() if state is None else state
+        if not config.region:
+            return 'Konumu Seç ile koordinat alanını seçin.'
+        if (config.display != screen_bounds() or
+                (config.monitors is not None and config.monitors != monitor_layout())):
+            return 'Bu bilgisayarın ekran düzeni farklı; Konumu Seç ile alanı yeniden seçin.'
+        if state.get('available') is False:
+            return state.get('ocr_message') or 'Windows OCR hazır değil; Yeniden Dene veya hata ayrıntısını kontrol edin.'
+        if config.center is None:
+            return 'Anlık Konumu Al ile merkezi kaydedin.'
+        if not config.ready:
+            return 'Mesafeleri kontrol edin: 0 ≤ Min < Maks olmalı.'
+        if state.get('available') is not True:
+            return 'Windows OCR hazırlanıyor; koordinat okuması bekleniyor.'
+        return None
+
+    def retry_ocr(self):
+        if self.engine.is_running:
+            return
+        self.publish(self.generation, available=None, error=None, ocr_message=None,
+                     status='Windows OCR yeniden deneniyor…')
+        self.wake.set()
 
     def publish(self, generation, **values):
         with self.lock:
@@ -145,6 +177,7 @@ class PositionController:
             self.failure = None
             self.snapshot.pop('center_candidate', None)
             self.snapshot.pop('center_error', None)
+            self.snapshot['center_progress'] = 0
             self._request_after = time.monotonic()
         self.wake.set()
 
@@ -364,9 +397,9 @@ class PositionController:
             started = time.monotonic()
             with self.lock:
                 config, generation = self.config, self.generation
-            if self.center_requested and started-self._request_after > 12:
+            if self.center_requested and started-self._request_after > self.CENTER_TIMEOUT:
                 self.center_requested = False
-                self.publish(generation, center_error='Merkez kaydedilemedi; karakteri sabit tutup yeniden deneyin.')
+                self.publish(generation, center_error='Merkez kaydedilemedi; yalnızca iki koordinatı çevreleyen dar bir alan seçip karakteri sabit tutarak yeniden deneyin.')
             if not config.region:
                 self.motion.halt()
                 self.wake.wait(.5)
@@ -398,7 +431,9 @@ class PositionController:
                     continue
                 accepted = self.filter.accept(point, stamp, moving=self.motion.holding,
                                                expected_speed=self.steering.speed)
-                self.publish(generation, available=True)
+                self.publish(generation, available=True, error=None, ocr_message=None)
+                if self.center_requested:
+                    self.publish(generation, center_progress=len(self.filter.stable))
                 if not accepted or time.monotonic()-stamp > self.FRESH_SECONDS:
                     self.missing_reading(generation)
                 else:
@@ -415,7 +450,8 @@ class PositionController:
                 LOGGER.exception('Koordinat okuyucu başarısız')
                 self.gate.set_position_blocked(config.enabled and self.engine.is_running)
                 self.publish(generation, available=False,
-                             status='Windows OCR kullanılamıyor; okuma yeniden deneniyor', error=str(error))
+                             status=ocr_error_message(error), ocr_message=ocr_error_message(error),
+                             error=str(error).strip() or type(error).__name__)
                 self.wake.wait(2)
             self.wake.wait(max(.01, .25-(time.monotonic()-started)))
 

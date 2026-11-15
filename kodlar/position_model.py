@@ -74,6 +74,7 @@ def distance(first, second):
 
 
 class ReadingFilter:
+    STABILITY_WINDOW = 4.0
     def __init__(self):
         self.last = None
         self.stable = []
@@ -82,13 +83,13 @@ class ReadingFilter:
 
     def accept(self, point, stamp, *, moving=False, expected_speed=None):
         if point is None:
-            if self.last is None or stamp-self.last[1] > .75:
+            if self.last is None or stamp-self.last[1] > self.STABILITY_WINDOW:
                 self.stable.clear()
             self.candidate = None
             return False
         if self.last:
             old, previous = self.last
-            if stamp-previous > .9:
+            if stamp-previous > self.STABILITY_WINDOW:
                 self.stable.clear()
             delta = distance(old, point)
             limit = max(3.0, (stamp-previous)*25)

@@ -82,6 +82,61 @@ class InteractionPolishTests(unittest.TestCase):
             self.assertTrue(panel.model.enabled)
             self.assertIsNone(panel.model.region)
 
+    def poll_position(self):
+        panel = self.app.position_panel
+        if panel.job is not None:
+            panel.after_cancel(panel.job)
+        panel.poll()
+
+    def test_position_checkbox_can_enable_before_region_or_ocr_is_ready(self):
+        panel = self.app.position_panel
+        self.poll_position()
+        self.assertEqual(panel.check.cget('state'), 'normal')
+        panel.check.invoke()
+        self.poll_position()
+        self.assertTrue(panel.model.enabled)
+        self.assertEqual(panel.enabled.get(), 1)
+        self.assertTrue(self.app.profiles_data['positions'][self.app.active_profile]['enabled'])
+        self.assertIn('Konumu Seç', panel.status.cget('text'))
+        self.engine.set_enabled(True)
+        self.assertFalse(self.engine.is_running)
+
+    def test_only_tab_exposes_refresh_interval_and_saves_it(self):
+        self.assertFalse(self.app.config_widgets[id(self.config)]['tab_frame'].winfo_manager())
+        self.config.key = 'tab'
+        self.app.refresh_keys_list_ui()
+        widgets = self.app.config_widgets[id(self.config)]
+        self.assertEqual(widgets['tab_frame'].winfo_manager(), 'pack')
+        entry = widgets['tab_entry']
+        entry.delete(0, 'end')
+        entry.insert(0, '7,5')
+        self.app.save_tab_refresh(self.config, entry)
+        self.assertEqual(self.config.tab_refresh_seconds, 7.5)
+        saved = next(item for item in self.app.profiles_data['profiles'][self.app.active_profile]
+                     if item['id_token'] == self.config.id_token)
+        self.assertEqual(saved['tab_refresh_seconds'], 7.5)
+        self.config.key = 'a'
+        self.app.refresh_keys_list_ui()
+        self.assertFalse(widgets['tab_frame'].winfo_manager())
+
+    def test_ocr_failure_keeps_checkbox_clickable_and_shows_help(self):
+        from kodlar.platform_win import screen_bounds
+        panel = self.app.position_panel
+        model = panel.model
+        model.region, model.display, model.center = (10, 20, 90, 20), screen_bounds(), (1, 2)
+        self.engine.position_controller.config = type(model).from_dict(model.to_dict())
+        self.engine.position_controller.snapshot.update(available=False,
+            ocr_message='Windows OCR dili bulunamadı.', error='Windows OCR language is not installed')
+        self.poll_position()
+        self.assertEqual(panel.check.cget('state'), 'normal')
+        self.assertIn('OCR dili', panel.status.cget('text'))
+        self.assertIn('language is not installed', panel.ocr_detail.cget('text'))
+        self.assertEqual(panel.ocr_help.winfo_manager(), 'pack')
+        with patch.object(panel, 'persist') as persist:
+            panel.check.invoke()
+            persist.assert_called_once()
+        self.assertTrue(model.enabled)
+
     def test_log_panel_height_is_saved_and_does_not_hide_list(self):
         height = self.app.content_split.winfo_height()
         self.app.content_split.sash_place(0, 0, height-157)

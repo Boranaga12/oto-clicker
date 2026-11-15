@@ -187,9 +187,9 @@ class RandomizedAutoClicker:
 
     def set_enabled(self, active: bool, reason: str | None = None) -> None:
         if active and self.position_controller.config.enabled:
-            state = self.position_controller.state()
-            if not self.position_controller.config.ready or state.get('available') is not True:
-                self.log('Konum kontrolü hazır değil; alanı ve Windows OCR durumunu kontrol edin.')
+            issue = self.position_controller.activation_issue()
+            if issue:
+                self.log('Konum kontrolü: ' + issue)
                 return
         if active and not self.is_running:
             for group in self.sequence_groups:

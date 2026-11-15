@@ -13,6 +13,19 @@ import re
 from .position_model import parse_coordinates
 
 
+def ocr_error_message(error):
+    text = str(error).strip()
+    lowered = text.casefold()
+    if 'ocr language' in lowered or 'ocr dili' in lowered or 'recognizer language' in lowered:
+        return ('Windows OCR dili bulunamadı. Windows dil ayarlarından OCR destekli '
+                'bir dilin Metin Tanıma bileşenini yükleyin; ardından Yeniden Dene kullanın.')
+    if isinstance(error, FileNotFoundError):
+        return 'Windows PowerShell bulunamadı; Windows bileşenlerini kontrol edin.'
+    if any(word in lowered for word in ('denied', 'blocked', 'policy', 'engellen', '0x80070005', 'language mode', 'constrainedlanguage')):
+        return 'Windows OCR yardımcısı engellendi; Windows güvenlik veya kurum ilkelerini kontrol edin.'
+    return 'Windows OCR başlatılamadı. Yeniden Dene ile tekrar deneyin; aşağıdaki ayrıntıyı kontrol edin.'
+
+
 SCRIPT = r'''
 $ErrorActionPreference = 'Stop'
 [Console]::InputEncoding = New-Object System.Text.UTF8Encoding($false)
@@ -40,8 +53,14 @@ try {
   $engine = [Windows.Media.Ocr.OcrEngine]::TryCreateFromLanguage($language)
  }
  if ($null -eq $engine) { $engine = [Windows.Media.Ocr.OcrEngine]::TryCreateFromUserProfileLanguages() }
+ if ($null -eq $engine) {
+  foreach ($installedLanguage in [Windows.Media.Ocr.OcrEngine]::AvailableRecognizerLanguages) {
+   $engine = [Windows.Media.Ocr.OcrEngine]::TryCreateFromLanguage($installedLanguage)
+   if ($null -ne $engine) { break }
+  }
+ }
  if ($null -eq $engine) { throw 'Windows OCR language is not installed' }
- Add-Type -ReferencedAssemblies System.Drawing -TypeDefinition @'
+ Add-Type -ReferencedAssemblies System.Drawing,System.Core -TypeDefinition @'
 using System;
 using System.Drawing;
 using System.Drawing.Imaging;
@@ -55,7 +74,7 @@ public static class CoordinateFrames {
  static CoordinateFrames() {
   try { SetProcessDpiAwarenessContext(new IntPtr(-4)); } catch(EntryPointNotFoundException) { }
  }
- public static Batch Make(int x, int y, int w, int h, string image) {
+ public static Batch Make(int x, int y, int w, int h, string image, int[] preferred) {
   using (Bitmap source = new Bitmap(w,h,PixelFormat.Format32bppArgb)) {
    using (Graphics g = Graphics.FromImage(source)) {
     if (String.IsNullOrEmpty(image)) g.CopyFromScreen(x,y,0,0,new Size(w,h),CopyPixelOperation.SourceCopy);
@@ -64,7 +83,8 @@ public static class CoordinateFrames {
    }
    List<string> frames = new List<string>();
    List<int[]> shapes = new List<int[]>();
-   frames.Add(Encode(source, false, 4));
+   HashSet<int> selected=preferred!=null && preferred.Length>=2 ? new HashSet<int>(preferred) : null;
+   AddFrame(frames,selected,source,false,4);
    foreach(int threshold in new int[]{165,145,125})
    using (Bitmap mask = new Bitmap(w,h,PixelFormat.Format32bppArgb)) {
     Rectangle rect = new Rectangle(0,0,w,h);
@@ -80,15 +100,15 @@ public static class CoordinateFrames {
     BitmapData dst=mask.LockBits(rect,ImageLockMode.WriteOnly,PixelFormat.Format32bppArgb);
     try { Marshal.Copy(data,0,dst.Scan0,data.Length); } finally { mask.UnlockBits(dst); }
     if(threshold>=145) shapes.Add(Holes(mask));
-    frames.Add(Encode(mask, true, 4, true));
-    frames.Add(Encode(mask, true, 4));
-    frames.Add(Encode(mask, true, 6));
+    AddFrame(frames,selected,mask,true,4,true);
+    AddFrame(frames,selected,mask,true,4);
+    AddFrame(frames,selected,mask,true,6);
    }
    // Status panels are often selected with their border. Extract the bright
    // text row before OCR instead of asking OCR to parse the entire panel.
    using(Bitmap band=TextBand(source)) {
-    frames.Add(Encode(band, false, 4));
-    frames.Add(Encode(band, false, 6));
+    AddFrame(frames,selected,band,false,4);
+    AddFrame(frames,selected,band,false,6);
     using(Bitmap negative=new Bitmap(band.Width,band.Height,PixelFormat.Format32bppArgb)) {
      for(int py=0;py<band.Height;py++) for(int px=0;px<band.Width;px++) {
       Color c=band.GetPixel(px,py);
@@ -96,12 +116,15 @@ public static class CoordinateFrames {
       int value=Math.Min(255,Math.Max(0,(210-grey)*2));
       negative.SetPixel(px,py,Color.FromArgb(value,value,value));
      }
-     frames.Add(Encode(negative,true,4));
-     frames.Add(Encode(negative,true,6));
+     AddFrame(frames,selected,negative,true,4);
+     AddFrame(frames,selected,negative,true,6);
     }
    }
    return new Batch {Frames=frames.ToArray(), Shapes=shapes.ToArray()};
   }
+ }
+ static void AddFrame(List<string> frames,HashSet<int> selected,Bitmap source,bool mask,int scale,bool reinforce=false) {
+  frames.Add(selected==null || selected.Contains(frames.Count) ? Encode(source,mask,scale,reinforce) : null);
  }
  static Bitmap TextBand(Bitmap source) {
   int first=-1,bestTop=0,bestBottom=source.Height-1,bestScore=0,sum=0;
@@ -212,7 +235,7 @@ public static class CoordinateFrames {
    $r = $request.region
    if ($r.Count -ne 4 -or $r[2] -lt 8 -or $r[2] -gt 640 -or $r[3] -lt 8 -or $r[3] -gt 180) { throw 'Invalid coordinate region' }
    $captureTimer = [System.Diagnostics.Stopwatch]::StartNew()
-   $batch = [CoordinateFrames]::Make($r[0],$r[1],$r[2],$r[3],$request.image)
+   $batch = [CoordinateFrames]::Make($r[0],$r[1],$r[2],$r[3],$request.image,[int[]]$request.preferred)
    $frames = $batch.Frames
    $texts = @()
    $indices = @(0..($frames.Length-1))
@@ -312,9 +335,12 @@ class CoordinateOCR:
         threading.Thread(target=self._receive, args=(self.process, self.responses),
                          name='coordinate-ocr-output', daemon=True).start()
         try:
-            response = self.responses.get(timeout=15)
+            response = self.responses.get(timeout=30)
             if not response.get('ready'):
                 raise RuntimeError(response.get('error', 'Windows OCR başlatılamadı'))
+        except queue.Empty as error:
+            self.close()
+            raise RuntimeError('Windows OCR startup timed out') from error
         except Exception:
             self.close()
             raise
@@ -364,6 +390,9 @@ class CoordinateOCR:
                     return winner
                 self.preferred = None
                 return None
+            except queue.Empty as error:
+                self.close()
+                raise RuntimeError('Windows OCR response timed out') from error
             except Exception:
                 self.close()
                 raise

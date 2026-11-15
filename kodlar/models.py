@@ -54,9 +54,11 @@ class KeyConfig:
     id_token: str = field(default_factory=new_id)
     action_chain: bool = False
     actions: list[dict[str, Any]] = field(default_factory=list)
+    tab_refresh_seconds: float = 4.0
 
     def __post_init__(self) -> None:
         self.interval_seconds = clamp_click_interval(self.key, self.interval_seconds)
+        self.tab_refresh_seconds = _as_float(self.tab_refresh_seconds, 4.0, .1)
 
     @property
     def has_click_target(self) -> bool:
@@ -117,6 +119,7 @@ def key_config_from_dict(item: Mapping[str, Any]) -> KeyConfig:
         id_token=str(item.get("id_token") or new_id()),
         action_chain=bool(item.get("action_chain", False)),
         actions=clean_actions,
+        tab_refresh_seconds=_as_float(item.get('tab_refresh_seconds'), 4.0, .1),
     )
 
 

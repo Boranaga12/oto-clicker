@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import queue
 import logging
+import math
 from collections import deque, OrderedDict
 from functools import wraps
 from dataclasses import fields
@@ -1745,6 +1746,18 @@ class ClickerApp:
             highlightbackground=self.border_color)
         pixel_btn.configure(command=lambda cfg=config, btn=pixel_btn, lbl=coord_lbl, preview=color_preview: self.start_pixel_capture(cfg, btn, lbl, preview))
 
+        tab_frame = tk.Frame(card, bg=self.card_color)
+        tk.Label(tab_frame, text='Tab yenilenme (sn):', bg=self.card_color,
+                 fg=self.text_secondary, font=('Segoe UI', 8)).pack(side='left')
+        tab_entry = self.create_modern_entry(tab_frame, width=6)
+        tab_entry.frame.pack(side='left', padx=(5, 6))
+        tab_entry.insert(0, f'{config.tab_refresh_seconds:g}')
+        tab_entry._saved_value = lambda cfg=config: f'{cfg.tab_refresh_seconds:g}'
+        tab_entry.bind('<FocusOut>', lambda _e, cfg=config, entry=tab_entry: self.save_tab_refresh(cfg, entry))
+        tab_entry.bind('<Return>', lambda _e, cfg=config, entry=tab_entry: self.save_tab_refresh(cfg, entry))
+        tk.Label(tab_frame, text='İzleme açıkken', bg=self.card_color,
+                 fg=self.text_secondary, font=('Segoe UI', 8)).pack(side='left')
+
         click_frame = tk.Frame(card, bg=self.card_color)
         loc_btn = tk.Button(click_frame, text="Tıklama Seç", font=("Segoe UI", 8),
             bg=self.input_bg, fg=self.text_primary, bd=0, highlightthickness=0, activebackground=self.border_color,
@@ -1763,6 +1776,7 @@ class ClickerApp:
             int_entry=int_entry, rand_entry=rand_entry, screen_var=screen_var, screen_check=chk_screen,
             screen_frame=screen_frame, coord_lbl=coord_lbl, color_preview=color_preview,
             pixel_btn=pixel_btn, click_frame=click_frame, loc_lbl=loc_lbl, loc_btn=loc_btn,
+            tab_frame=tab_frame, tab_entry=tab_entry,
             writing_check=writing_check, handle=handle, arrows=arrows, rail=rail,
             delete_btn=delete, stripe=stripe, model=config, group=group, signature=None)
         self.config_widgets[id(config)] = widgets
@@ -1777,7 +1791,8 @@ class ClickerApp:
         signature = (config.key, config.interval_seconds, config.random_seconds, config.enabled,
             config.screen_mode, config.pixel_x, config.pixel_y, config.target_color,
             config.click_x, config.click_y, role, label, blocked, group.enabled if group else True,
-            self.clicker.position_manages_config(config), self.clicker.app_config.panic_key)
+            self.clicker.position_manages_config(config), self.clicker.app_config.panic_key,
+            config.tab_refresh_seconds)
         previous = widgets["signature"]
         if signature == previous:
             return
@@ -1790,6 +1805,15 @@ class ClickerApp:
                 entry.insert(0, f"{signature[index]:.3f}")
         widgets["chk_var"].set(int(config.enabled))
         widgets["screen_var"].set(int(config.screen_mode))
+        tab_entry = widgets['tab_entry']
+        if self.root.focus_get() is not tab_entry:
+            tab_entry.delete(0, tk.END)
+            tab_entry.insert(0, f'{config.tab_refresh_seconds:g}')
+        if config.key.strip().lower() == 'tab' and role is None:
+            if not widgets['tab_frame'].winfo_manager():
+                widgets['tab_frame'].pack(fill='x', padx=(9, 0), pady=(0, 4))
+        else:
+            widgets['tab_frame'].pack_forget()
         widgets['screen_check'].configure(text='Renk bulununca' if self.clicker.is_toggle_macro(config) else 'İzleme')
         widgets["coord_lbl"].configure(text=f"({config.pixel_x}, {config.pixel_y})" if config.has_pixel_target else "—")
         widgets["loc_lbl"].configure(text=f"({config.click_x}, {config.click_y})" if config.has_click_target else "İmleç")
@@ -2019,6 +2043,24 @@ class ClickerApp:
                 swatch.pack_forget()
                 
         self.draw_markers()
+
+    @editable_only
+    def save_tab_refresh(self, config, entry):
+        if config.key.strip().lower() != 'tab':
+            return
+        try:
+            seconds = float(entry.get().replace(',', '.'))
+            if not math.isfinite(seconds) or seconds < .1:
+                raise ValueError
+        except ValueError:
+            entry.delete(0, tk.END)
+            entry.insert(0, f'{config.tab_refresh_seconds:g}')
+            self.clicker.log('Tab yenilenme süresi en az 0,1 saniye olmalı.')
+            return
+        if seconds != config.tab_refresh_seconds:
+            config.tab_refresh_seconds = seconds
+            self.save_current_configs_to_profiles(update_workers=False)
+            self.refresh_keys_list_ui()
 
     @editable_only
     def auto_save_timing(self, config: KeyConfig, entry: tk.Entry, field_type: str):

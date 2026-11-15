@@ -1,15 +1,25 @@
 """Curated notes bundled with the matching application release."""
 
 CURRENT_NOTES = (
+    'Yavaş bilgisayarlarda merkez doğrulamasının sürekli sıfırlanması düzeltildi; bekleme süresi ve 0/3 ilerleme göstergesi eklendi.',
+    'OCR, sonraki okumalarda yalnızca seçilen görüntü hazırlamalarını üretir; gereksiz büyütme ve PNG dönüşümleri azaltıldı.',
+    'Yalnızca Tab kartlarına ayarlanabilir Tab yenilenme süresi eklendi; varsayılan 4 saniye ve duraklama öncelikleri korunur.',
+    'Konum kartının Aktif kutusu OCR veya merkez henüz hazır olmasa da açılabilir; tercih kaydedilir.',
+    'Eksik alan, merkez, değişen ekran düzeni ve OCR sorunları kartta ayrı ayrı açıklanır; hazır olmadan hareket başlamaz.',
+    'İngilizce ABD bulunmayan bilgisayarlarda yüklü diğer Windows OCR dilleri de otomatik denenir.',
+    'OCR hatasının ayrıntısı, Yeniden Dene ve Windows Dil Ayarları düğmeleri karta eklendi.',
+    'Aktiflik değiştirilirken aynı alanın OCR hazırlık durumu korunur.',
+)
+
+HISTORY = (
+    ("2.3.0", (
     'Alan seçme, kaldırma ve merkez güncelleme artık konum kartının Aktif tercihini sıfırlamaz.',
     'Sabit koordinat panellerinde yazı satırı otomatik ayrılır; geniş seçim ve başlıklar için OCR iyileştirildi.',
     'Aralıklı OCR hataları Maks dışına çıkış doğrulamasını sıfırlamaz; gerçek yakalama zamanı kullanılır.',
     'Merkeze dönüşte W kesintisiz tutulur, yön A/D ile düzeltilir; yazı ve odak değişimi tuşları bırakır.',
     'İlerleme durursa sırayla sol/sağ kaçınma denenir ve ardından yeniden merkeze yönelinir.',
     'Kısa okuma kesintilerinde dönüş devam eder; uzun kesintide bekler ve okuma düzelince otomatik sürer.',
-)
-
-HISTORY = (
+    )),
     ("2.2.1", (
     'Koordinatlar hem oyun üzerindeki X/Y yazısından hem de sabit zemindeki X / Y göstergesinden seçilebilir.',
     'Başlatma kısayolu atayıcısı üstte, Üstte seçeneği ile Başlat düğmesi arasına taşındı.',
