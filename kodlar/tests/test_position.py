@@ -264,6 +264,21 @@ class PositionPriorityTests(unittest.TestCase):
         self.assertEqual(len(controller.obstacles.samples), 0)
         self.assertIsNone(controller.motion.drive.call_args.args[-1])
 
+    def test_moving_character_can_be_tracked_before_auto_walk_starts(self):
+        controller = self.controller()
+        self.assertFalse(controller.motion.holding)
+        for index in range(4):
+            self.assertTrue(controller.filter_reading((10+index, 0), 1+index*.25))
+        self.assertEqual(controller.filter.last[0], (13, 0))
+
+    def test_center_capture_still_requires_stationary_readings(self):
+        controller = self.controller()
+        controller.center_requested = True
+        self.assertTrue(controller.filter_reading((10, 0), 1))
+        self.assertFalse(controller.filter_reading((11, 0), 1.25))
+        self.assertFalse(controller.filter_reading((12, 0), 1.5))
+        self.assertEqual(len(controller.filter.stable), 0)
+
     def test_late_result_from_another_profile_cannot_unblock(self):
         controller = self.controller()
         controller.gate.set_position_blocked(True)

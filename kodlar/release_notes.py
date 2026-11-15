@@ -1,6 +1,7 @@
 """Curated notes bundled with the matching application release."""
 
 CURRENT_NOTES = (
+    'Elle hareket eden karakterin doğru koordinatları sabitlik filtresine takılmaz; durağanlık yalnızca merkez kaydı için gerekir.',
     'Yazı arası, engel kanıtı olarak biriktirilmez; yazıdan sonra kesintisiz hareket ölçümü yeniden başlar.',
     'Koordinatlar rakam rakam, yazı şekilleri ve gerçek ondalık noktalarıyla okunur; 3/6/8 ayrımı için özel sayısal tanıyıcı eklendi.',
     'Rakam tanıyıcı yerel çalışır; belirsiz görüntüde Windows OCR aynı yakalanmış kare üzerinden yedek olarak kullanılır.',
@@ -11,6 +12,9 @@ CURRENT_NOTES = (
 )
 
 HISTORY = (
+    ("2.5.1", (
+        'Yazı aralarının eski engel ölçümlerini tamamlaması engellendi.',
+    )),
     ("2.5.0", (
         'Rakam bazında koordinat tanıyıcı, OCR kaybında kalıcı W dönüş kilidi ve gerçek durağanlıkla engel doğrulaması eklendi.',
     )),

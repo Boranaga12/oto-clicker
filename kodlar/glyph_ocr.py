@@ -84,7 +84,7 @@ def text_bands(mask):
     runs, start = [], None
     for y in range(height+1):
         ink = sum(mask[y]) if y < height else 0
-        if ink >= max(2, width//70):
+        if ink >= min(4, max(2, width//70)):
             if start is None:
                 start = y
         elif start is not None:

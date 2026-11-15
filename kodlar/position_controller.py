@@ -381,6 +381,12 @@ class PositionController:
         self.inside = 0
         self.release_on_read_loss(generation)
 
+    def filter_reading(self, point, stamp):
+        # A character may move manually before automatic return starts. Only a
+        # center capture requires stationary samples; tracking must not demand it.
+        return self.filter.accept(point, stamp, moving=not self.center_requested,
+                                  expected_speed=self.steering.speed if self.motion.holding else None)
+
     def run(self):
         while not self.closed.is_set():
             self.wake.clear()
@@ -418,8 +424,7 @@ class PositionController:
                 if stamp <= self.gate.position_epoch and config.enabled and self.engine.is_running:
                     self.missing_reading(generation)
                     continue
-                accepted = self.filter.accept(point, stamp, moving=self.motion.holding,
-                                               expected_speed=self.steering.speed)
+                accepted = self.filter_reading(point, stamp)
                 self.publish(generation, available=True, error=None, ocr_message=None)
                 if self.center_requested:
                     self.publish(generation, center_progress=len(self.filter.stable))
