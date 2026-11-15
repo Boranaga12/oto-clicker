@@ -50,9 +50,12 @@ Karakter dururken **Anlık Konumu Al** ile üç tutarlı okumadan merkez kaydedi
 Güvenilir ölçümde Maks aşılırsa merkeze dönüş kilitlenir; W sürekli basılı
 tutulurken A/D ile yön düzeltilerek Min mesafesine dönülür. Kısa OCR hataları
 bu iki ölçümün doğrulamasını sıfırlamaz. İlerleme durursa karakter
-önce engelden geriye doğru açılır, sonra geniş bir eğri üzerindeki ara hedefleri
-izleyerek yandan merkeze yaklaşır. Kaçınma bir birim ilerlemekle veya birkaç saniye
-geçmesiyle bitmez. Yeniden takılma doğrulanırsa karşı taraf daha geniş denenir.
+önce kısa çapraz bir geri açılma yapar, sonra yakın bir eğri üzerindeki ara
+hedefleri izleyerek yandan merkeze yaklaşır. İlk iki deneme karşılıklı yönlerde
+aynı ölçekte yapılır; tekrar takılmada yalnızca 0.35 koordinat birimi genişlenir.
+Kaçınma ölçeği 1.5–2.1 birimden başlar, en fazla 3 birime çıkar. Ara hedefler
+ilk engel noktası çevresinde tutulur; tekrar denemeler gittikçe uzağa kaymaz.
+Kaçınma birkaç saniye geçmesiyle bitmez; yerel geçiş tamamlanınca merkez hedeflenir.
 Bu, koordinat geri bildirimli kaçınmadır; haritadan rota çıkarmaz.
 Okuma kaybı, tur süresi veya kaçınma sayısı dönüş kilidini kaldırmaz. Gerçek ve
 güncel bir ölçüm Min'in altında olduğunda W bırakılır. Min sıfırsa tam merkez
@@ -197,6 +200,8 @@ değişiminde renkler geri yüklenir. Yazı işlem ayrıntıları dosya günlü�
 
 `main` dalına gönderilen değişiklikler GitHub Actions ile uygulamanın kayıtlı
 sürüm numarasıyla yayımlanır. İndirilecek dosya Releases içindeki `arik-makro.zip`tir.
+Küçük geliştirme ve hata düzeltmelerinde son hane artırılır (örneğin 2.8.0 →
+2.8.1). Ortadaki hane yalnızca büyük güncellemelerde bir artırılır.
 İlk otomatik güncellemeli sürüm bir kez elle kurulmalıdır. Actions ve yayınlama
 izinlerinin GitHub üzerinde etkin olması gerekir.
 

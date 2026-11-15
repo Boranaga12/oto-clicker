@@ -127,14 +127,32 @@ class ObstacleEvidenceTests(unittest.TestCase):
         self.assertIsNone(watch.escape_origin)
         self.assertEqual(watch.begin_escape((11.1, 0), 10), 'd')
 
-    def test_wide_curve_retreats_and_clears_the_side_before_rejoining(self):
+    def test_local_curve_retreats_slightly_and_clears_the_side_before_rejoining(self):
         watch = ObstacleWatch()
         watch.begin_escape((12, 0), 1, (0, 0), speed=2)
         route = list(watch.route)
-        self.assertGreater(route[0][0], 17)
-        self.assertGreater(max(abs(y) for _, y in route), 8)
+        self.assertGreater(route[0][0], 12)
+        self.assertLess(route[0][0], 13)
+        self.assertGreater(max(abs(y) for _, y in route), 1)
+        self.assertLess(max(abs(y) for _, y in route), 2)
         self.assertLess(route[-1][0], 12)
         first_radius = watch.radius
         watch.begin_escape((12, 0), 10, (0, 0), speed=2)
-        self.assertGreater(watch.radius, first_radius)
+        self.assertEqual(watch.radius, first_radius)
         self.assertGreater(watch.route[0][1], 0)
+        watch.begin_escape((12, 0), 20, (0, 0), speed=2)
+        self.assertGreater(watch.radius, first_radius)
+
+    def test_retries_cannot_expand_routes_far_from_the_original_obstacle(self):
+        watch = ObstacleWatch()
+        watch.begin_escape((12, 0), 1, (0, 0), speed=100)
+        for attempt in range(30):
+            watch.begin_escape((12+attempt*.15, .2), 2+attempt, (0, 0), speed=100)
+            self.assertLessEqual(watch.radius, 3)
+            self.assertEqual(watch.detour_anchor, (12, 0))
+            self.assertTrue(all(((x-12)**2+y*y)**.5 < 3.8 for x, y in watch.route))
+        while watch.route:
+            watch.escape_target(watch.route[0], 40)
+        watch.begin_escape((30, 10), 50, (0, 0), speed=2)
+        self.assertEqual(watch.detour_anchor, (30, 10))
+        self.assertEqual(watch.radius, 1.5)

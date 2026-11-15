@@ -235,7 +235,8 @@ class PositionPriorityTests(unittest.TestCase):
             turns = [call.args[-1] for call in controller.motion.drive.call_args_list if call.args[-1] is not None]
             self.assertGreaterEqual(len(turns), 1)
             self.assertEqual(turns[0][0], 'a')
-            self.assertGreater(turns[0][1], .65)
+            self.assertGreaterEqual(turns[0][1], .18)
+            self.assertLessEqual(turns[0][1], .65)
             controller.evaluate((10.9, 0), clock[0], 1)
             self.assertIsNotNone(controller.obstacles.escape_origin)
         self.assertIsNone(controller.failure)

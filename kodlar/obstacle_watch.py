@@ -11,10 +11,11 @@ class ObstacleWatch:
         self.samples = deque(maxlen=40)
         self.cooldown = 0.0
         self.escape_origin = None
-        self.escape_started = 0.0
+        self.detour_anchor = None
         self.attempt = 0
+        self.next_side = 1
         self.route = deque()
-        self.radius = 6.0
+        self.radius = 1.5
 
     def reset_evidence(self, until=0.0):
         self.samples.clear()
@@ -39,27 +40,32 @@ class ObstacleWatch:
     def begin_escape(self, point, stamp, center=None, speed=None):
         self.attempt += 1
         self.escape_origin = point
-        self.escape_started = stamp
+        if self.detour_anchor is None:
+            self.detour_anchor = point
+        anchor = self.detour_anchor
         center = center if center is not None else (point[0]-10, point[1])
-        dx, dy = center[0]-point[0], center[1]-point[1]
+        dx, dy = center[0]-anchor[0], center[1]-anchor[1]
         length = max(.001, math.hypot(dx, dy))
         dx, dy = dx/length, dy/length
-        side = 1 if self.attempt % 2 else -1
+        side = self.next_side
+        self.next_side = -side
         sx, sy = -dy*side, dx*side
-        base = max(6.0, min(12.0, (speed or 2.0)*2.5))
-        self.radius = radius = min(24.0, base*(1+.45*(self.attempt-1)))
+        # Try both sides at the same local scale before widening slightly.
+        # Keep retries around the first obstruction, not ever farther away.
+        base = max(1.5, min(2.1, (speed or 2.0)*.65))
+        self.radius = radius = min(3.0, base+.35*((self.attempt-1)//2))
         def offset(forward, sideways):
-            return (point[0]+radius*(dx*forward+sx*sideways),
-                    point[1]+radius*(dy*forward+sy*sideways))
-        retreat = offset(-1.0, .35)
-        control, end = offset(-.6, 2.6), offset(1.2, .45)
+            return (anchor[0]+radius*(dx*forward+sx*sideways),
+                    anchor[1]+radius*(dy*forward+sy*sideways))
+        retreat = offset(-.28, .55)
+        control, end = offset(.05, 1.8), offset(.9, .4)
         self.route = deque([retreat])
-        # Sample a broad quadratic curve after first turning away from the wall.
+        # A short diagonal retreat followed by a local curve around the obstacle.
         for t in (.25, .5, .75, 1.0):
             self.route.append(tuple((1-t)**2*retreat[i]+2*(1-t)*t*control[i]+t*t*end[i]
                                     for i in (0, 1)))
         self.reset_evidence(stamp+2)
-        return 'a' if self.attempt % 2 else 'd'
+        return 'a' if side > 0 else 'd'
 
     def escaping(self, point, stamp):
         return self.escape_target(point, stamp) is not None
@@ -67,10 +73,12 @@ class ObstacleWatch:
     def escape_target(self, point, stamp):
         if self.escape_origin is None:
             return None
-        while self.route and distance(point, self.route[0]) <= max(.6, self.radius*.22):
+        while self.route and distance(point, self.route[0]) <= max(.35, self.radius*.15):
             self.route.popleft()
         if not self.route:
             self.escape_origin = None
+            self.detour_anchor = None
+            self.attempt = 0
             self.reset_evidence(stamp+2)
             return None
         return self.route[0]

@@ -1,14 +1,20 @@
 """Curated notes bundled with the matching application release."""
 
 CURRENT_NOTES = (
+    'Engel kaçınmasının aşırı genişlemesi düzeltildi; kısa çapraz geri açılma ve yakın yan geçiş uygulanır.',
+    'İki taraf aynı yakın mesafede denenir; tekrar takılmada genişleme küçük adımlarla ve üst sınırla yapılır.',
+    'Tekrarlanan kaçınma hedefleri ilk engelin çevresinde tutulur; her denemede uzaklaşarak büyüyen rota kaldırıldı.',
+    'Küçük düzeltmelerde son sürüm hanesi artırılır; ortadaki hane büyük güncellemeler için ayrılır.',
+)
+
+HISTORY = (
+    ("2.8.0", (
     'Engelden kaçınma geriye açılıp geniş bir yan yay üzerinden merkeze dönen ara hedeflerle yenilendi; erken merkeze yönelme kaldırıldı.',
     'Yeni bir takılma doğrulanırsa karşı taraftan daha geniş kaçınma denenir; W ve yazı öncelikleri korunur.',
     'Tekrarlanan Makro başlatıldı/durduruldu kayıtları kaldırıldı; sistemin durum mesajı tek kez gösterilir.',
     'Gönderilen her tuş ve tıklama anında kayda yazılır; gruplarda grup adı ve tuş birlikte gösterilir.',
     'Gerçek basışlarda ilgili kartın çerçevesi ve renk şeridi hafifçe parlar; animasyonlar tek zamanlayıcıyla yönetilir.',
-)
-
-HISTORY = (
+    )),
     ("2.7.0", (
     'Kayıtlardaki başlangıç yönergesi ve tekrarlanan tuş, tıklama ve yazı işlem mesajları sadeleştirildi; hatalar gösterilmeye devam eder.',
     'Otomatik yürüyüş W/A/D girdileri oyunların okuyabildiği fiziksel tarama kodlarına geçirildi; W dönüş boyunca basılı tutulur.',
