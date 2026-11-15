@@ -149,6 +149,7 @@ class CoordinateOCR:
         self.lock = threading.Lock()
         self.last_texts = []
         self.preferred = None
+        self.region = None
 
     def _receive(self, process, responses):
         try:
@@ -190,6 +191,9 @@ class CoordinateOCR:
     def read(self, region, image=None):
         with self.lock:
             self.start()
+            if tuple(region) != self.region:
+                self.region = tuple(region)
+                self.preferred = None
             self.serial += 1
             request = {'id': self.serial, 'region': region, 'image': image,
                        'preferred': self.preferred}
