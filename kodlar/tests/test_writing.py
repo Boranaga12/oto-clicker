@@ -160,7 +160,7 @@ class WritingEngineTests(unittest.TestCase):
         def pressed(key):
             trace.append(str(key))
         self.engine.keyboard.press.side_effect = pressed
-        self.engine.log_callback = lambda message: completed.set() if 'Yazı tamamlandı' in message else None
+        self.engine._group_workers[self.configs[3].id_token].execute_chain_actions = completed.set
         self.engine.set_enabled(True)
         self.assertTrue(completed.wait(2))
         self.engine.set_enabled(False)
@@ -281,8 +281,11 @@ class WritingEngineTests(unittest.TestCase):
         completed = threading.Event()
         for config in self.configs[:4]:
             worker = self.engine._group_workers[config.id_token]
-            worker.execute_chain_actions = lambda: chains.append(close_released.is_set())
-        self.engine.log_callback = lambda message: completed.set() if 'Yazı tamamlandı' in message else None
+            def chain():
+                chains.append(close_released.is_set())
+                if len(chains) >= 4:
+                    completed.set()
+            worker.execute_chain_actions = chain
         self.engine.set_enabled(True)
         self.assertTrue(completed.wait(1))
         self.engine.set_enabled(False)
@@ -295,10 +298,11 @@ class WritingEngineTests(unittest.TestCase):
         trace = []
         done = threading.Event()
         self.engine.keyboard.press.side_effect = lambda key: trace.append(str(key))
-        def log(message):
-            if 'Yazı tamamlandı' in message and all(k in trace for k in ('h', 'Key.f1', 'Key.f2')):
+        def completed_section():
+            if all(k in trace for k in ('h', 'Key.f1', 'Key.f2')):
                 done.set()
-        self.engine.log_callback = log
+        for key in (self.configs[3].id_token, self.configs[5].id_token):
+            self.engine._group_workers[key].execute_chain_actions = completed_section
         self.engine.set_enabled(True)
         self.assertTrue(done.wait(2))
         self.engine.set_enabled(False)

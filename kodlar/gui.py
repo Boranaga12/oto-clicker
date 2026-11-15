@@ -53,6 +53,10 @@ PIXEL_PICK_OFFSET = 8
 LOGGER = logging.getLogger(__name__)
 
 
+def profile_name_key(name):
+    return name.casefold().replace('ı', 'i').replace('\u0307', '')
+
+
 def editable_only(method):
     """Also reject queued callbacks during the gap before Tk is visually locked."""
     @wraps(method)
@@ -970,7 +974,7 @@ class ClickerApp:
                 (
                     existing
                     for existing in self.profiles_data["profiles"]
-                    if existing.casefold() == name.casefold()
+                    if profile_name_key(existing) == profile_name_key(name)
                 ),
                 None,
             )
@@ -1012,7 +1016,7 @@ class ClickerApp:
         if not name or len(name) > 40:
             messagebox.showerror("Hata", "Profil ismi 1–40 karakter olmalı.", parent=self.root)
             return
-        if any(key != old and key.casefold() == name.casefold() for key in self.profiles_data["profiles"]):
+        if any(key != old and profile_name_key(key) == profile_name_key(name) for key in self.profiles_data["profiles"]):
             messagebox.showerror("Hata", "Bu isimde bir profil zaten mevcut.", parent=self.root)
             return
         if name == old:

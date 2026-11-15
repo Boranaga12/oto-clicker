@@ -54,7 +54,7 @@ class InteractionPolishTests(unittest.TestCase):
                                y_root=widget.winfo_rooty()+5+dy, delta=delta)
 
     def test_card_wheel_reaches_list_and_text_wheel_does_not(self):
-        widgets = self.app.config_widgets[id(self.config)]
+        widgets = self.app.config_widgets[id(self.grouped)]
         event = self.event(widgets['key_btn'], delta=-120)
         with patch.object(self.app.list_container.canvas, 'yview_scroll') as scroll:
             self.app.list_container._on_mousewheel(event)
@@ -64,7 +64,7 @@ class InteractionPolishTests(unittest.TestCase):
             scroll.assert_not_called()
 
     def test_fractional_wheel_movement_accumulates(self):
-        card = self.app.config_widgets[id(self.config)]['card']
+        card = self.app.config_widgets[id(self.grouped)]['card']
         with patch.object(self.app.list_container.canvas, 'yview_scroll') as scroll:
             for _ in range(4):
                 self.app.list_container._on_mousewheel(self.event(card, delta=-30))

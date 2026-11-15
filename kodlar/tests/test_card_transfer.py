@@ -33,7 +33,8 @@ class CardTransferTests(unittest.TestCase):
         roots = [c.id_token for c in self.configs if c.id_token != self.ids[1]]
         self.assertEqual(roots, [self.ids[2], self.ids[3], self.ids[0]])
         self.assertTrue(self.move(self.ids[0], None, 0))
-        self.assertEqual(self.configs[0].id_token, self.ids[0])
+        roots = [c.id_token for c in self.configs if c.id_token != self.ids[1]]
+        self.assertEqual(roots, [self.ids[0], self.ids[2], self.ids[3]])
 
     def test_group_transfer_preserves_transition_settings(self):
         item = self.group.children[0]

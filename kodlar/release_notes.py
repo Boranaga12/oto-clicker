@@ -4,6 +4,7 @@ CURRENT_NOTES = (
     'Kayıtlardaki başlangıç yönergesi ve tekrarlanan tuş, tıklama ve yazı işlem mesajları sadeleştirildi; hatalar gösterilmeye devam eder.',
     'Otomatik yürüyüş W/A/D girdileri oyunların okuyabildiği fiziksel tarama kodlarına geçirildi; W dönüş boyunca basılı tutulur.',
     'Profil menüsüne Profili kopyala eklendi; tuşlar, gruplar, yazı bölümleri ve konum ayarları yeni isimle bağımsız kaydedilir.',
+    'Profil adlarında Türkçe büyük/küçük harf farkıyla aynı isimde ikinci kayıt oluşturulması önlendi.',
     'Bağımsız tuşlara sürükleme eklendi; tuşlar sıralanabilir, gruba taşınabilir ve Grup dışı tuşlar alanına çıkarılabilir.',
     'Gruplar arasında taşıma bekleme ayarlarını korur; yazı bölümleri açılış kartından bütün olarak başka gruba taşınır.',
 )
