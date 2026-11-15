@@ -60,21 +60,8 @@ public static class CoordinateFrames {
      using (Bitmap input = new Bitmap(stream)) g.DrawImage(input,new Rectangle(0,0,w,h),new Rectangle(x,y,w,h),GraphicsUnit.Pixel);
    }
    List<string> frames = new List<string>();
-   frames.Add(Encode(source, false, 4, false));
-   frames.Add(Encode(source, false, 4, true));
-   frames.Add(Encode(source, false, 8, true));
-   using(Bitmap inverted = new Bitmap(w,h,PixelFormat.Format32bppArgb)) {
-    for(int py=0;py<h;py++) for(int px=0;px<w;px++) {
-     Color pixel=source.GetPixel(px,py);
-     int grey=(pixel.R*299+pixel.G*587+pixel.B*114)/1000;
-     inverted.SetPixel(px,py,Color.FromArgb(255-grey,255-grey,255-grey));
-    }
-    frames.Add(Encode(inverted, true, 4, true));
-    frames.Add(Encode(inverted, true, 6, true));
-    frames.Add(Encode(inverted, true, 4, true, 6));
-    frames.Add(Encode(inverted, true, 4, true, 8));
-   }
-   foreach(int threshold in new int[]{125,145,165,185})
+   frames.Add(Encode(source, false, 4));
+   foreach(int threshold in new int[]{165,145,125})
    using (Bitmap mask = new Bitmap(w,h,PixelFormat.Format32bppArgb)) {
     Rectangle rect = new Rectangle(0,0,w,h);
     BitmapData src = source.LockBits(rect,ImageLockMode.ReadOnly,PixelFormat.Format32bppArgb);
@@ -89,50 +76,19 @@ public static class CoordinateFrames {
     BitmapData dst=mask.LockBits(rect,ImageLockMode.WriteOnly,PixelFormat.Format32bppArgb);
     try { Marshal.Copy(data,0,dst.Scan0,data.Length); } finally { mask.UnlockBits(dst); }
     frames.Add(Encode(mask, true, 4, true));
-    frames.Add(Encode(mask, true, 4, false));
-    frames.Add(Encode(mask, true, 6, true));
-    frames.Add(Encode(mask, true, 8, false));
-    frames.Add(Encode(mask, true, 4, true, 6));
-    frames.Add(Encode(mask, true, 4, true, 8));
-    frames.Add(Encode(mask, true, 4, true, 4, true));
-    frames.Add(Encode(mask, true, 6, true, 6, true));
-    using(Bitmap pair=Separate(mask, false)) {
-     if(pair!=null) frames.Add(Encode(pair, true, 4, true));
-    }
-    using(Bitmap pair=Separate(mask, true)) {
-     if(pair!=null) frames.Add(Encode(pair, true, 4, true));
-    }
+    frames.Add(Encode(mask, true, 4));
+    frames.Add(Encode(mask, true, 6));
    }
    return frames.ToArray();
   }
  }
- static Bitmap Separate(Bitmap source, bool stacked) {
-  int best=0, split=0, run=0;
-  for(int x=source.Width/4;x<source.Width*3/4;x++) {
-   bool blank=true;
-   for(int y=0;y<source.Height;y++) if(source.GetPixel(x,y).R<128) {blank=false;break;}
-   run=blank ? run+1 : 0;
-   if(run>best) {best=run;split=x-run/2;}
-  }
-  if(best<2) return null;
-  Bitmap result=new Bitmap(stacked ? Math.Max(split,source.Width-split) : source.Width+24,
-                            stacked ? source.Height*2+12 : source.Height);
-  using(Graphics g=Graphics.FromImage(result)) {
-   g.Clear(Color.White);
-   g.DrawImage(source,new Rectangle(0,0,split,source.Height),new Rectangle(0,0,split,source.Height),GraphicsUnit.Pixel);
-   g.DrawImage(source,new Rectangle(stacked?0:split+24,stacked?source.Height+12:0,source.Width-split,source.Height),
-               new Rectangle(split,0,source.Width-split,source.Height),GraphicsUnit.Pixel);
-  }
-  return result;
- }
- static string Encode(Bitmap source, bool mask, int scale, bool smooth, int vertical=0, bool reinforce=false) {
-  if(vertical==0) vertical=scale;
-  using(Bitmap scaled=new Bitmap(source.Width*scale+32,source.Height*vertical+32,PixelFormat.Format32bppArgb)) {
+ static string Encode(Bitmap source, bool mask, int scale, bool reinforce=false) {
+  using(Bitmap scaled=new Bitmap(source.Width*scale+32,source.Height*scale+32,PixelFormat.Format32bppArgb)) {
    using(Graphics g=Graphics.FromImage(scaled)) {
     g.Clear(mask ? Color.White : Color.Black);
-    g.InterpolationMode=smooth ? InterpolationMode.HighQualityBicubic : InterpolationMode.NearestNeighbor;
+    g.InterpolationMode=InterpolationMode.HighQualityBicubic;
     g.PixelOffsetMode=PixelOffsetMode.Half;
-    g.DrawImage(source,new Rectangle(16,16,source.Width*scale,source.Height*vertical));
+    g.DrawImage(source,new Rectangle(16,16,source.Width*scale,source.Height*scale));
    }
    if(reinforce) {
     // One enlarged pixel is at most a quarter of an original pixel.
@@ -260,6 +216,17 @@ class CoordinateOCR:
                     raise RuntimeError(response.get('error', 'Geçersiz OCR yanıtı'))
                 self.last_texts = response.get('texts', [])
                 points = [parse_coordinates(text) for text in self.last_texts]
+                indexed = dict(zip(response['indices'], points))
+                primary = indexed.get(1)
+                if primary is not None:
+                    # The near-white mask excludes more background than relaxed
+                    # masks. Do not let several correlated noisy masks outvote it.
+                    original = indexed.get(0)
+                    if original is not None and original != primary:
+                        self.preferred = None
+                        return None
+                    self.preferred = [0, 1]
+                    return primary
                 valid = [point for point in points if point is not None]
                 # A single plausible OCR result is not sufficient for movement.
                 # Independently prepared frames must agree on both decimals.
@@ -269,8 +236,8 @@ class CoordinateOCR:
                 winner = max(set(valid), key=valid.count)
                 votes = valid.count(winner)
                 if votes >= 2 and votes/len(valid) >= 2/3:
-                    self.preferred = [index for index, point in zip(response['indices'], points)
-                                      if point == winner][:2]
+                    fallback = [index for index, point in indexed.items() if point == winner][:2]
+                    self.preferred = list(dict.fromkeys([0, 1, *fallback]))
                     return winner
                 self.preferred = None
                 return None
